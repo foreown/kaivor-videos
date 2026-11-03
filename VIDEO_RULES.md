@@ -8,8 +8,11 @@ You make short promo videos for **Kaivor**, my Discord bot (kaivor.space, GitHub
 
 1. **Centred.** Every video MUST be horizontally centred on the true middle of the frame (x = 540 of 1080). Never shift content to dodge TikTok/Reels/Shorts UI. Check it on the finished file by measuring frames, not just by trusting the layout.
 2. **Format.** 9:16, 1080×1920, **60 fps**, H.264 High, yuv420p, bt709, `-movflags +faststart`. Around 18–22 s unless I say otherwise. Keep the file under ~30 MB (CRF 16–17, `-maxrate 9M -bufsize 18M`).
-3. **No audio** unless I ask for it. If I ask for sound "but no music", make original sound effects yourself (synthesised in code, e.g. numpy), normalise to −14 LUFS, true peak −2 dBTP, with a limiter so nothing hits 0 dBFS.
-4. **Music:** no trending TikTok song is licensed for brand use on every platform. Never bake a trending song into the file. Tell me to add a sound inside each app instead.
+3. **Every video needs sound.** Silent videos are not allowed. Use one of these two:
+   - **Sound made by you:** original sound effects plus, if it fits, an original music bed, all synthesised in code (e.g. numpy). Time the hits to the cuts and on-screen actions (key presses, message pops, the end card).
+   - **A song that matches the video:** pick it for tempo and mood, and cut the edit to its beat. Only use music that is clearly licensed for commercial/brand use on every platform the video goes to (e.g. CC0, or a royalty-free licence that allows commercial use; if it needs attribution, put the credit in every caption). Write the track, artist, source link and licence in LOG.md. If you can't find and download a track like that, make the sound yourself instead.
+   - Either way: AAC 48 kHz stereo, normalised to −14 LUFS integrated, true peak −2 dBTP, with a limiter so nothing hits 0 dBFS (`tools/finish_audio.py` does this). Sound must start within the first second and last until the end.
+4. **Music:** no trending TikTok song is licensed for brand use on every platform. Never bake a trending or other copyrighted song into the file, even if it would match better.
 5. **Generic Discord-style UI.** Make it look like Discord (dark chat, menus, embeds, buttons) but use no Discord logo, wordmark or branding.
 6. **Real Kaivor logo.** Use the real logo (I'll attach it, or get it from the repo). Never redraw or alter it.
 7. **Made-up but realistic users.** Usernames like `mira`, `teo`, `gift_drop4821`. No real people's accounts.
@@ -69,9 +72,10 @@ You make short promo videos for **Kaivor**, my Discord bot (kaivor.space, GitHub
 
 - Build each video as an HTML page where `render(frame)` sets the exact state for that frame. Capture it with Playwright headless Chromium at 1080×1920.
 - Render **one encoded file per shot** by piping JPEG screenshots (quality 92) into ffmpeg. Write each to a temp `.mp4` and rename it only when ffmpeg succeeds. Then join with the concat demuxer and `-c copy`.
+- **Sound:** build the audio track as a WAV the exact length of the video, timed to the shot list. Then add it with `python3 tools/finish_audio.py silent.mp4 sound.wav final.mp4`, which normalises the loudness and copies the video stream untouched.
 - Hide inactive shots with `display:none` (not `visibility`), so nothing leaks into other shots.
 - **Before the full render:** render stills at the busiest moments, put them on a contact sheet and look at them. Fix layout, overlap, empty areas and centring first.
-- **After the render:** check frame count, fps, duration and size with ffprobe. Measure the horizontal centre of the content on several frames (it should land on ~540). Export a cover frame (JPEG) from the end card.
+- **After the render:** check frame count, fps, duration and size with ffprobe, and that there is an audio track at −14 LUFS / −2 dBTP (`tools/check_video.py` checks all of this). Listen through the timing by looking at the waveform against the shot list. Measure the horizontal centre of the content on several frames (it should land on ~540). Export a cover frame (JPEG) from the end card.
 - Deliver the .mp4 and the cover. Then give a short shot-by-shot summary of what's in the video and which facts were checked in the code.
 
 ---

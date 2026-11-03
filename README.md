@@ -12,7 +12,9 @@ Daily promo videos for Kaivor (TikTok + YouTube Shorts), posted through Metricoo
 - `tools/capture.mjs`: captures a page with Playwright at 1080×1920, 60 fps, into one file per shot, then joins them with `-c copy`
   - `node tools/capture.mjs videos/<dir>/index.html out/<dir>.mp4`
   - `node tools/capture.mjs videos/<dir>/index.html out/stills --stills 1.5,6,11` writes stills for a contact sheet
-- `tools/check_video.py out.mp4 cover.jpg`: checks format, fps, colour tags, no audio, duration and size, measures the content's horizontal centre, and exports the cover
+- `tools/finish_audio.py silent.mp4 sound.wav final.mp4`: adds the sound track at −14 LUFS / −2 dBTP and copies the video stream untouched
+- `tools/check_video.py out.mp4 cover.jpg`: checks format, fps, colour tags, sound and loudness, duration and size, measures the content's horizontal centre, and exports the cover
+- `videos/2026-11-04-sticky-messages/sound.py`: example of an original sound track synthesised in code and timed to the shot list
 - `assets/`: the real Kaivor logo (`kaivor-logo.png`, transparent) and app icon (`icon-512.png`), copied from aurora-docs and never altered
 - Fonts come from npm `@fontsource` (`npm install`)
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Check a finished Kaivor video against VIDEO_RULES.md (format + centring).
+"""Check a finished Kaivor video against VIDEO_RULES.md (format, sound, centring).
 
 Usage: python3 tools/check_video.py out.mp4 [cover.jpg]
 
 - Prints codec, profile, size, fps, frame count, duration, file size, colour tags and audio streams.
+- Requires an AAC 48 kHz audio track at -14 LUFS integrated (+/-1) with true peak at or below -1.5 dBTP.
 - Measures the horizontal centre of the content on ~12 frames: the bounding box of pixels that
   differ from that frame's own edge colour. It should land on ~540.
 - With a second argument, exports the cover (a frame 1 s before the end) as JPEG.
@@ -31,7 +32,21 @@ if abs(fps - 60) > 0.01: fails.append("not 60 fps")
 if v["codec_name"] != "h264" or v.get("profile") != "High": fails.append("not H.264 High")
 if v["pix_fmt"] != "yuv420p": fails.append("not yuv420p")
 if v.get("color_space") != "bt709": fails.append("not tagged bt709")
-if audio: fails.append("has an audio stream")
+if not audio:
+    fails.append("no audio stream (every video needs sound)")
+else:
+    a = audio[0]
+    if a["codec_name"] != "aac" or a.get("sample_rate") != "48000":
+        fails.append("audio is not AAC 48 kHz")
+    import re
+    log = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", src, "-map", "0:a:0",
+                          "-af", "ebur128=peak=true", "-f", "null", "-"], capture_output=True, text=True).stderr
+    summary = log[log.rfind("Summary:"):]
+    lufs = float(re.search(r"I:\s+(-?[\d.]+) LUFS", summary).group(1))
+    tp = float(re.search(r"Peak:\s+(-?[\d.]+|-inf) dBFS", summary).group(1))
+    print(f"audio: {a['codec_name']} {a.get('sample_rate')} Hz, integrated {lufs:.1f} LUFS, true peak {tp:.1f} dBTP")
+    if abs(lufs + 14) > 1: fails.append(f"loudness {lufs:.1f} LUFS, should be -14")
+    if tp > -1.5: fails.append(f"true peak {tp:.1f} dBTP, should be -2 or lower")
 if size_mb > 30: fails.append("over 30 MB")
 if not 15 <= dur <= 25: fails.append(f"duration {dur:.1f}s is outside ~18-22 s")
 
