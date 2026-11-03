@@ -1,0 +1,15 @@
+{
+  "name": "kaivor-videos",
+  "private": true,
+  "type": "module",
+  "description": "Kaivor daily promo video tooling",
+  "dependencies": {
+    "@fontsource/bricolage-grotesque": "^5.0.0",
+    "@fontsource/figtree": "^5.0.0",
+    "@fontsource/jetbrains-mono": "^5.0.0",
+    "@fontsource/archivo": "^5.0.0",
+    "@fontsource/instrument-serif": "^5.0.0",
+    "@fontsource/fraunces": "^5.0.0",
+    "@fontsource/space-grotesk": "^5.0.0"
+  }
+}

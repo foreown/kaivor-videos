@@ -1,0 +1,308 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: Sticky messages (aurora-bot commit 5ec5269).
+  Look: "moss & bone" — green-black #141712 and bone #ECE7DC alternating by shot, one accent (forest #3F7D5C),
+  Bricolage Grotesque headlines, Figtree for the chat UI, JetBrains Mono only for the command.
+  Facts checked in src/commands/configuration/sticky.ts and src/services/sticky/index.ts:
+    - example command: sticky set #general Please read #rules before posting!
+    - set: setSticky -> repostSticky (posts the copy) -> ctx.success(...)
+    - reply: "Added a sticky message to #general. It is reposted once the channel has been quiet for 5 seconds."
+    - DEFAULT_DELAY_SEC = 5, formatDuration(5000) = "5 seconds"; the previous copy is deleted on repost
+    - success embeds: COLORS.success 0x5bc98c, icon fallback ✅ (framework/embeds.ts, framework/icons.ts)
+-->
+<style>
+@font-face { font-family: 'Brico'; font-weight: 800; src: url('../../node_modules/@fontsource/bricolage-grotesque/files/bricolage-grotesque-latin-800-normal.woff2'); }
+@font-face { font-family: 'Brico'; font-weight: 600; src: url('../../node_modules/@fontsource/bricolage-grotesque/files/bricolage-grotesque-latin-600-normal.woff2'); }
+@font-face { font-family: 'Fig'; font-weight: 400; src: url('../../node_modules/@fontsource/figtree/files/figtree-latin-400-normal.woff2'); }
+@font-face { font-family: 'Fig'; font-weight: 500; src: url('../../node_modules/@fontsource/figtree/files/figtree-latin-500-normal.woff2'); }
+@font-face { font-family: 'Fig'; font-weight: 600; src: url('../../node_modules/@fontsource/figtree/files/figtree-latin-600-normal.woff2'); }
+@font-face { font-family: 'Fig'; font-weight: 700; src: url('../../node_modules/@fontsource/figtree/files/figtree-latin-700-normal.woff2'); }
+@font-face { font-family: 'JBM'; font-weight: 500; src: url('../../node_modules/@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2'); }
+
+:root { --dark: #141712; --bone: #ECE7DC; --accent: #3F7D5C; --ink: #1B1E19; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--dark); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--dark); color: var(--bone); }
+.light { background: var(--bone); color: var(--ink); }
+
+/* headline: lines slide up out of a mask */
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Brico'; font-weight: 800; letter-spacing: -0.02em; }
+.line { display: block; overflow: hidden; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Brico'; font-weight: 600; font-size: 34px; letter-spacing: 0.08em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; }
+
+/* generic Discord-style chat (no Discord logo or wordmark) */
+.chat { position: absolute; left: 70px; width: 940px; background: #313338; border-radius: 22px; overflow: hidden;
+        font-family: 'Fig'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 96px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 34px;
+             border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 50px; color: #80848E; font-weight: 500; }
+.chat .top .name { font-size: 38px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 30px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 18px; }
+.msg { display: flex; gap: 26px; padding: 14px 34px; }
+.msg.new { }
+.av { width: 84px; height: 84px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 36px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: baseline; gap: 14px; }
+.who { font-size: 34px; font-weight: 600; }
+.app { font-size: 20px; font-weight: 700; color: #fff; background: #5865F2; border-radius: 6px; padding: 3px 9px; transform: translateY(-4px); }
+.time { font-size: 24px; color: #949BA4; }
+.text { font-size: 34px; line-height: 1.38; color: #DBDEE1; margin-top: 4px; }
+.mention { background: rgba(88, 101, 242, .3); color: #C9CDFB; border-radius: 6px; padding: 0 5px; font-weight: 500; }
+.embed { margin-top: 10px; background: #2B2D31; border-radius: 8px; border-left: 8px solid #5BC98C; padding: 22px 28px; font-size: 32px; line-height: 1.42; max-width: 740px; }
+.embed b { color: #F2F3F5; }
+.input { flex: none; margin: 0 26px 26px; height: 92px; background: #383A40; border-radius: 18px; display: flex; align-items: center; gap: 22px; padding: 0 26px; position: relative; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 32px; color: #6D6F78; white-space: nowrap; overflow: hidden; }
+.typed { font-family: 'JBM'; font-size: 28px; color: #DBDEE1; white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.caret { display: inline-block; width: 3px; height: 34px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+.typing { position: absolute; left: 30px; bottom: -2px; font-size: 22px; color: #B5BAC1; }
+.cursor { position: absolute; width: 54px; height: 54px; z-index: 5; pointer-events: none; }
+
+/* end card */
+.logo { position: absolute; left: 50%; width: 300px; height: 300px; margin-left: -150px; }
+.cmd { position: absolute; left: 0; right: 0; text-align: center; font-family: 'JBM'; font-weight: 500; font-size: 40px; }
+.cmd span { background: var(--ink); color: var(--bone); padding: 14px 26px; border-radius: 4px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Brico'; font-weight: 600; font-size: 48px; }
+.rule { position: absolute; left: 50%; height: 4px; background: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- 0 hook -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:150px;font-size:96px;line-height:1.02">
+    <span class="line"><span>Your rules message</span></span>
+    <span class="line"><span>is already gone.</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:430px;height:1300px"></div>
+</section>
+
+<!-- 1 turn -->
+<section class="shot light" id="s1">
+  <div class="head" style="top:800px;font-size:124px;line-height:1.0">
+    <span class="line"><span>Keep it at</span></span>
+    <span class="line"><span>the <span style="color:var(--accent)">bottom.</span></span></span>
+  </div>
+</section>
+
+<!-- 2 action -->
+<section class="shot dark" id="s2">
+  <div class="kicker" style="top:190px;color:#8FB49E">One command</div>
+  <div class="chat" id="chat2" style="top:300px;height:1440px"></div>
+  <svg class="cursor" id="cur2" viewBox="0 0 24 24"><path d="M4 2 L4 19 L8.6 14.8 L11.6 21.4 L14.4 20.2 L11.5 13.7 L17.6 13.5 Z" fill="#ECE7DC" stroke="#141712" stroke-width="1.4" stroke-linejoin="round"/></svg>
+</section>
+
+<!-- 3 result -->
+<section class="shot light" id="s3">
+  <div class="head" style="top:150px;font-size:84px;line-height:1.04">
+    <span class="line"><span>Chat keeps going.</span></span>
+    <span class="line"><span>The message stays last.</span></span>
+  </div>
+  <div class="chat" id="chat3" style="top:420px;height:1320px"></div>
+</section>
+
+<!-- 4 key fact -->
+<section class="shot dark" id="s4">
+  <div class="head" style="top:700px;font-size:92px;line-height:1.05">
+    <span class="line"><span>It waits for</span></span>
+    <span class="line"><span style="color:#8FB49E">5 seconds of quiet,</span></span>
+    <span class="line"><span>so busy chats</span></span>
+    <span class="line"><span>don’t get flooded.</span></span>
+  </div>
+</section>
+
+<!-- 5 end card -->
+<section class="shot light" id="s5">
+  <img class="logo" id="logo5" src="../../assets/kaivor-logo.png" style="top:430px">
+  <div class="kicker" style="top:830px;color:var(--accent)">New in Kaivor</div>
+  <div class="head" style="top:900px;font-size:120px;line-height:1.0">
+    <span class="line"><span>Sticky messages</span></span>
+  </div>
+  <div class="rule" id="rule5" style="top:1070px"></div>
+  <div class="cmd" style="top:1140px" id="cmd5"><span>,sticky set #channel &lt;message&gt;</span></div>
+  <div class="url" style="top:1290px" id="url5">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+window.VIDEO = { fps: FPS, shots: [
+  { name: 'hook', seconds: 2.6 }, { name: 'turn', seconds: 1.0 }, { name: 'action', seconds: 4.4 },
+  { name: 'result', seconds: 4.6 }, { name: 'fact', seconds: 2.4 }, { name: 'end', seconds: 3.2 },
+]};
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inOut = (t) => { t = Math.min(1, Math.max(0, t)); return t < .5 ? 8 * t ** 4 : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+
+// made-up users
+const U = {
+  teo:   { name: 'teo', color: '#6CC28F', bg: '#3F7D5C', i: 'T' },
+  mira:  { name: 'mira', color: '#E3B7F0', bg: '#8C5BA8', i: 'M' },
+  gift:  { name: 'gift_drop4821', color: '#DBDEE1', bg: '#5D6470', i: 'G' },
+  noor:  { name: 'noor', color: '#F0B27A', bg: '#B5713A', i: 'N' },
+  vex:   { name: 'vex', color: '#DBDEE1', bg: '#4C6A9A', i: 'V' },
+  kofi:  { name: 'kofi', color: '#9AD0EC', bg: '#2E7FA8', i: 'K' },
+  bot:   { name: 'Kaivor', color: '#F2F3F5', bot: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const md = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/\{#(\w[\w-]*)\}/g, '<span class="mention">#$1</span>');
+
+function msgHTML(m, i, arr) {
+  const u = U[m.u];
+  const grouped = i > 0 && arr[i - 1].u === m.u;
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>`
+                   : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.bot ? '<span class="app">APP</span>' : '';
+  const content = m.embed ? `<div class="embed">✅ ${md(m.embed)}</div>` : `<div class="text">${md(m.text)}</div>`;
+  if (grouped) return `<div class="msg" style="padding-top:2px"><div class="av" style="height:0"></div><div class="body">${content}</div></div>`;
+  return `<div class="msg">${av}<div class="body"><div class="meta"><span class="who" style="color:${u.color}">${u.name}</span>${app}<span class="time">Today at ${m.time || '21:14'}</span></div>${content}</div></div>`;
+}
+
+const STICKY = 'Please read #rules before posting!';
+const REPLY = 'Added a sticky message to {#general}. It is reposted once the channel has been quiet for **5 seconds**.';
+
+// builds a chat panel; msgs: [{u, text|embed, at (s, appear time), gone (s, optional)}]
+function renderChat(el, t, msgs, input) {
+  const shown = msgs.filter((m) => t >= m.at && !(m.gone !== undefined && t >= m.gone));
+  const newest = shown[shown.length - 1];
+  el.innerHTML = `
+    <div class="top"><span class="hash">#</span><span class="name">general</span><span class="topic">say hi, read the rules</span></div>
+    <div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>
+    <div class="input"><span class="plus">+</span>${input && input.text !== undefined
+      ? `<span class="typed">${esc(input.text)}${input.caret ? '<span class="caret"></span>' : ''}</span>`
+      : '<span class="ph">Message #general</span>'}
+      ${input && input.typing ? '<span class="typing"><b>Kaivor</b> is typing…</span>' : ''}</div>`;
+  // newest message eases in: the whole stack rises by its height
+  if (newest) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, 0.22));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function lines(sec, t, start, gap) {
+  sec.querySelectorAll('.line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.45));
+    s.style.transform = `translateY(${(1 - e) * 105}%)`;
+  });
+}
+
+// ---- shots ----
+const hookMsgs = [
+  { u: 'kofi', text: 'who’s still on', at: -1, time: '21:02' },
+  { u: 'mira', text: 'me', at: -1, time: '21:03' },
+  { u: 'noor', text: 'one more game?', at: -1, time: '21:03' },
+  { u: 'vex', text: 'that last round was close', at: -1, time: '21:05' },
+  { u: 'mira', text: 'i carried', at: -1, time: '21:05' },
+  { u: 'gift', text: 'hi, just joined', at: -1, time: '21:06' },
+  { u: 'noor', text: 'welcome!', at: -1, time: '21:06' },
+  { u: 'kofi', text: 'gg everyone', at: -1, time: '21:07' },
+  { u: 'noor', text: 'night all', at: -1, time: '21:08' },
+  { u: 'teo', text: STICKY.replace('#rules', '{#rules}'), at: -1, time: '21:09' },
+  { u: 'mira', text: 'anyone up for ranked tonight', at: 0.15 },
+  { u: 'gift', text: 'how do i get the artist role', at: 0.35 },
+  { u: 'noor', text: 'it’s in the rules', at: 0.55 },
+  { u: 'vex', text: 'where are the rules', at: 0.75 },
+  { u: 'kofi', text: 'same question lol', at: 0.95 },
+  { u: 'mira', text: 'scroll up', at: 1.15 },
+  { u: 'gift', text: 'scroll up where', at: 1.35 },
+  { u: 'noor', text: 'teo posted them earlier', at: 1.55 },
+  { u: 'vex', text: 'there’s like 400 messages', at: 1.75 },
+  { u: 'kofi', text: 'i’m not scrolling that', at: 1.95 },
+  { u: 'mira', text: 'just ask a mod', at: 2.15 },
+];
+
+const actionCmd = ',sticky set #general Please read #rules before posting!';
+const actionMsgs = [
+  { u: 'mira', text: 'anyone up for ranked tonight', at: -1 },
+  { u: 'gift', text: 'how do i get the artist role', at: -1 },
+  { u: 'noor', text: 'it’s in the rules', at: -1 },
+  { u: 'vex', text: 'where are the rules', at: -1 },
+  { u: 'kofi', text: 'same question lol', at: -1 },
+  { u: 'mira', text: 'scroll up', at: -1 },
+  { u: 'gift', text: 'scroll up where', at: -1 },
+  { u: 'noor', text: 'teo posted them earlier', at: -1 },
+  { u: 'vex', text: 'there’s like 400 messages', at: -1 },
+  { u: 'kofi', text: 'i’m not scrolling that', at: -1 },
+  { u: 'mira', text: 'just ask a mod', at: -1 },
+  { u: 'teo', text: actionCmd, at: 2.45, cmd: true },
+  { u: 'bot', text: 'Please read #rules before posting!', at: 2.95, time: '21:15' },
+  { u: 'bot', embed: REPLY, at: 3.25, time: '21:15' },
+];
+
+const resultMsgs = [
+  { u: 'kofi', text: 'same question lol', at: -1, time: '21:14' },
+  { u: 'mira', text: 'scroll up', at: -1, time: '21:14' },
+  { u: 'gift', text: 'scroll up where', at: -1, time: '21:14' },
+  { u: 'teo', text: actionCmd, at: -1, time: '21:15' },
+  { u: 'bot', text: STICKY, at: -1, time: '21:15', gone: 2.35 },
+  { u: 'bot', embed: REPLY, at: -1, time: '21:15' },
+  { u: 'vex', text: 'oh nice', at: 0.35, time: '21:15' },
+  { u: 'gift', text: 'ok reading them now', at: 0.7, time: '21:15' },
+  { u: 'kofi', text: 'artist role is in #roles btw', at: 1.0, time: '21:16' },
+  { u: 'bot', text: STICKY, at: 2.35, time: '21:16', gone: 3.85 },
+  { u: 'mira', text: 'ranked at 10 then', at: 3.0, time: '21:16' },
+  { u: 'bot', text: STICKY, at: 3.85, time: '21:16' },
+];
+
+const S = [...document.querySelectorAll('.shot')];
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, t, 0.0, 0.12);
+    renderChat(document.getElementById('chat0'), t, hookMsgs);
+  } else if (shot === 1) {
+    lines(sec, t, 0.0, 0.1);
+  } else if (shot === 2) {
+    // cursor: ease-in-out travel to the input bar, small press on the click
+    const cur = document.getElementById('cur2');
+    const k = inOut(p(t, 0.15, 0.75));
+    const x = 820 + (330 - 820) * k, y = 1250 + (1640 - 1250) * k;
+    const press = t > 0.95 && t < 1.08 ? 0.86 : 1;
+    cur.style.left = x + 'px'; cur.style.top = y + 'px'; cur.style.transform = `scale(${press})`;
+    cur.style.display = t < 2.4 ? 'block' : 'none';
+    const n = Math.round(actionCmd.length * p(t, 1.1, 1.15));
+    let input;
+    if (t >= 1.0 && t < 2.45) input = { text: actionCmd.slice(0, n), caret: Math.floor(t * 4) % 2 === 0 || n < actionCmd.length };
+    else if (t >= 2.45 && t < 2.95) input = { typing: true };
+    renderChat(document.getElementById('chat2'), t, actionMsgs, input);
+    sec.querySelector('.kicker').style.opacity = String(out4(p(t, 0, 0.3)));
+  } else if (shot === 3) {
+    lines(sec, t, 0.0, 0.12);
+    const typing = (t > 1.6 && t < 2.35) || (t > 3.3 && t < 3.85);
+    renderChat(document.getElementById('chat3'), t, resultMsgs, typing ? { typing: true } : undefined);
+  } else if (shot === 4) {
+    lines(sec, t, 0.0, 0.14);
+  } else if (shot === 5) {
+    const e = out4(p(t, 0, 0.5));
+    const logo = document.getElementById('logo5');
+    logo.style.opacity = String(e);
+    logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, t, 0.15, 0.1);
+    const r = out4(p(t, 0.45, 0.5));
+    const rule = document.getElementById('rule5');
+    rule.style.width = 520 * r + 'px'; rule.style.marginLeft = -260 * r + 'px';
+    for (const [id, a] of [['cmd5', 0.6], ['url5', 0.8]]) {
+      const el = document.getElementById(id), q = out4(p(t, a, 0.4));
+      el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+    }
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>

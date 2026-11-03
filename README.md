@@ -1,11 +1,23 @@
 # Kaivor daily videos
 
-Generator for Kaivor's daily TikTok / YouTube Shorts.
+Daily promo videos for Kaivor (TikTok + YouTube Shorts), posted through Metricool.
 
-- `topics.json` — content rotation (one entry per day) and dated overrides
-- `pick.py [YYYY-MM-DD]` — prints the spec for a date (default: today, Europe/Oslo)
-- `render.py spec.json out.mp4` — renders a 1080×1920, 30 fps, ~13 s video, centered on the frame
-- Rendered videos live on the `media` branch (only the most recent ~7 are kept) and are served from
-  `https://raw.githubusercontent.com/foreown/kaivor-videos/media/<date>.mp4`
+**Read `VIDEO_RULES.md` first. Every video must follow it.**
 
-Edit `topics.json` to change what gets posted. Fonts: Inter (SIL OFL), DejaVu Sans Mono.
+## Layout
+
+- `VIDEO_RULES.md`: the production rules (hard rules, look, structure, captions, checked facts)
+- `LOG.md`: every video made so far, with its feature, look and fonts. Check it so you don't repeat a feature or a look, and add a line for each new video
+- `videos/<date>-<feature>/index.html`: one page per video, where `render(shot, frame)` sets the exact state of that frame
+- `tools/capture.mjs`: captures a page with Playwright at 1080×1920, 60 fps, into one file per shot, then joins them with `-c copy`
+  - `node tools/capture.mjs videos/<dir>/index.html out/<dir>.mp4`
+  - `node tools/capture.mjs videos/<dir>/index.html out/stills --stills 1.5,6,11` writes stills for a contact sheet
+- `tools/check_video.py out.mp4 cover.jpg`: checks format, fps, colour tags, no audio, duration and size, measures the content's horizontal centre, and exports the cover
+- `assets/`: the real Kaivor logo (`kaivor-logo.png`, transparent) and app icon (`icon-512.png`), copied from aurora-docs and never altered
+- Fonts come from npm `@fontsource` (`npm install`)
+
+## Hosting
+
+The finished MP4 and cover go on the `media` branch, which keeps only the newest ~10 videos and is force-pushed so history stays small. Metricool reads them from:
+
+`https://raw.githubusercontent.com/foreown/kaivor-videos/media/<date>-<feature>.mp4`
