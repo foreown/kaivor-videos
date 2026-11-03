@@ -11,4 +11,4 @@ Features and looks already used. Don't repeat a feature unless asked, and give e
 
 | Date | Feature (commit) | Look | Fonts | Posted to |
 |---|---|---|---|---|
-| 2026-11-04 | Sticky messages (`5ec5269`) | moss & bone: green-black #141712 / bone #ECE7DC by shot, forest accent #3F7D5C | Bricolage Grotesque, Figtree (chat UI), JetBrains Mono (command) | TikTok, YouTube Shorts |
+| 2026-11-04 | Sticky messages (`5ec5269`) | moss & bone: green-black #141712 / bone #ECE7DC by shot, forest accent #3F7D5C | Bricolage Grotesque, Figtree (chat UI), JetBrains Mono (command) | TikTok, YouTube Shorts (posted 2026-11-03 19:33) |
