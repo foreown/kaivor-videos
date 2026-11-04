@@ -1,0 +1,383 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: privacy optout (aurora-bot commit 572ea35).
+  Look: "manila & aubergine": manila #E9DCC0 and aubergine #211824 swapping by shot, one accent (marker mustard #D6A11E),
+  knock-out redaction bars, Big Shoulders Display headlines, Hanken Grotesk for the chat UI, IBM Plex Mono only for commands.
+  Facts checked:
+    - src/commands/information/privacy.ts: `privacy optout`, its ctx.success text (copied word for word), `privacy optin`
+    - src/services/privacy/preferences.ts: what the opt-out covers; moderation, security and logging are unaffected
+    - src/services/snipe/index.ts: recordDeletion returns early for opted-out authors
+    - keys.snipe(channelId): snipes are per channel. The result shot is in another channel on purpose, because the
+      entry stored before opting out stays in #general ("Data already stored stays")
+    - src/commands/snipe/snipe.ts: snipe embed (author, content, footer "Deleted · entry 1", timestamp), needs manage_messages,
+      NotFoundError 'There is nothing to snipe here.'
+    - src/framework/dispatcher.ts: NotFoundError -> errorEmbed; framework/embeds.ts COLORS (success 0x5bc98c, error 0xe0575b),
+      framework/icons.ts fallbacks (✅ ❌), .env.example DEFAULT_EMBED_COLOR #658a95; prefix commands answer with message.reply
+  Beat grid: 100 BPM (0.6 s). Shots are 5, 2, 9, 6, 5, 4 and 5 beats, 21.6 s in total.
+-->
+<style>
+@font-face { font-family: 'Shoulders'; font-weight: 800; src: url('../../node_modules/@fontsource/big-shoulders-display/files/big-shoulders-display-latin-800-normal.woff2'); }
+@font-face { font-family: 'Shoulders'; font-weight: 900; src: url('../../node_modules/@fontsource/big-shoulders-display/files/big-shoulders-display-latin-900-normal.woff2'); }
+@font-face { font-family: 'Hanken'; font-weight: 400; src: url('../../node_modules/@fontsource/hanken-grotesk/files/hanken-grotesk-latin-400-normal.woff2'); }
+@font-face { font-family: 'Hanken'; font-weight: 500; src: url('../../node_modules/@fontsource/hanken-grotesk/files/hanken-grotesk-latin-500-normal.woff2'); }
+@font-face { font-family: 'Hanken'; font-weight: 600; src: url('../../node_modules/@fontsource/hanken-grotesk/files/hanken-grotesk-latin-600-normal.woff2'); }
+@font-face { font-family: 'Hanken'; font-weight: 700; src: url('../../node_modules/@fontsource/hanken-grotesk/files/hanken-grotesk-latin-700-normal.woff2'); }
+@font-face { font-family: 'Plex'; font-weight: 500; src: url('../../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2'); }
+
+:root { --dark: #211824; --light: #E9DCC0; --accent: #D6A11E; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--dark); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--dark); color: var(--light); }
+.light { background: var(--light); color: var(--dark); }
+
+/* headline: lines slide up out of a mask */
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Shoulders'; font-weight: 900; text-transform: uppercase; }
+.line { display: block; overflow: hidden; padding: 0 20px; white-space: nowrap; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Shoulders'; font-weight: 800; font-size: 62px; text-transform: uppercase; letter-spacing: .01em; }
+.mark { background: var(--accent); color: var(--dark); padding: 0 .12em; }
+
+/* generic Discord-style chat (no Discord logo or wordmark) */
+.chat { position: absolute; left: 70px; width: 940px; background: #313338; border-radius: 6px; overflow: hidden;
+        font-family: 'Hanken'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 96px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 34px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 50px; color: #80848E; font-weight: 500; }
+.chat .top .name { font-size: 38px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 30px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 18px; }
+.msg { display: flex; gap: 26px; padding: 14px 34px; }
+.msg.hover { background: #2E3035; }
+.av { width: 84px; height: 84px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 36px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: baseline; gap: 14px; }
+.who { font-size: 34px; font-weight: 600; }
+.app { font-size: 20px; font-weight: 700; color: #fff; background: #5865F2; border-radius: 6px; padding: 3px 9px; transform: translateY(-4px); }
+.time { font-size: 24px; color: #949BA4; }
+.text { font-size: 34px; line-height: 1.38; color: #DBDEE1; margin-top: 4px; }
+.text.cmd { font-family: 'Plex'; font-weight: 500; font-size: 32px; }
+.replyline { display: flex; align-items: center; gap: 10px; font-size: 25px; color: #B5BAC1; margin: 0 0 6px 54px; position: relative; white-space: nowrap; }
+.replyline::before { content: ''; position: absolute; left: -66px; top: 16px; width: 54px; height: 22px; border-left: 3px solid #4E5058; border-top: 3px solid #4E5058; border-top-left-radius: 10px; }
+.replyline .mini { width: 34px; height: 34px; border-radius: 50%; color: #fff; font-size: 17px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.replyline b { font-weight: 600; }
+.embed { margin-top: 10px; background: #2B2D31; border-radius: 6px; border-left: 8px solid #5BC98C; padding: 22px 28px; font-size: 32px; line-height: 1.42; max-width: 760px; }
+.embed.err { border-left-color: #E0575B; }
+.embed.snipe { border-left-color: #658A95; }
+.embed code { font-family: 'Plex'; font-weight: 500; font-size: 28px; background: #1E1F22; padding: 2px 8px; border-radius: 4px; }
+.embed .author { display: flex; align-items: center; gap: 12px; font-size: 27px; font-weight: 600; color: #F2F3F5; margin-bottom: 10px; }
+.embed .author .mini { width: 38px; height: 38px; border-radius: 50%; color: #fff; font-size: 19px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.embed .foot { font-size: 23px; color: #B5BAC1; margin-top: 12px; }
+.hl { background-image: linear-gradient(rgba(214, 161, 30, .42), rgba(214, 161, 30, .42)); background-repeat: no-repeat; background-size: 0% 100%; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.input { flex: none; margin: 0 26px 26px; height: 92px; background: #383A40; border-radius: 12px; display: flex; align-items: center; gap: 22px; padding: 0 26px; position: relative; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 700; display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 32px; color: #6D6F78; white-space: nowrap; overflow: hidden; }
+.typed { font-family: 'Plex'; font-weight: 500; font-size: 32px; color: #DBDEE1; white-space: nowrap; overflow: hidden; }
+.caret { display: inline-block; width: 3px; height: 34px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+.typing { position: absolute; left: 30px; bottom: -2px; font-size: 22px; color: #B5BAC1; }
+.ctx { position: absolute; z-index: 4; background: #1E1F22; border-radius: 6px; padding: 12px; width: 330px; font-family: 'Hanken'; font-size: 30px; font-weight: 500; color: #F2F3F5; }
+.ctx div { padding: 12px 16px; border-radius: 4px; }
+.ctx .danger { color: #F2B8B9; background: #A63538; }
+.cursor { position: absolute; width: 54px; height: 54px; z-index: 5; pointer-events: none; }
+
+/* knock-out bars */
+.bars { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Shoulders'; font-weight: 900; text-transform: uppercase; font-size: 138px; line-height: 1; }
+.bar { display: block; height: 168px; }
+.k { position: relative; display: inline-block; padding: 12px 40px; white-space: nowrap; }
+.k .on { position: absolute; inset: 0; padding: 12px 40px; background: var(--dark); color: var(--light); }
+
+/* end card */
+.logo { position: absolute; left: 50%; width: 320px; height: 320px; margin-left: -160px; }
+.cmdbox { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Plex'; font-weight: 500; font-size: 52px; }
+.cmdbox span { background: var(--dark); color: var(--light); padding: 16px 32px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Shoulders'; font-weight: 800; font-size: 76px; letter-spacing: .02em; }
+.rule { position: absolute; left: 50%; height: 10px; background: var(--accent); }
+.small { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Plex'; font-weight: 500; font-size: 42px; color: var(--accent); }
+</style>
+</head>
+<body>
+
+<!-- 0 hook -->
+<section class="shot light" id="s0">
+  <div class="head" style="top:140px;font-size:138px;line-height:1.06">
+    <span class="line"><span>Deleted it.</span></span>
+    <span class="line"><span>Still got sniped.</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:510px;height:1270px"></div>
+  <div class="ctx" id="ctx0" style="display:none"><div class="danger">Delete Message</div></div>
+  <svg class="cursor" id="cur0" viewBox="0 0 24 24"><path d="M4 2 L4 19 L8.6 14.8 L11.6 21.4 L14.4 20.2 L11.5 13.7 L17.6 13.5 Z" fill="#E9DCC0" stroke="#211824" stroke-width="1.4" stroke-linejoin="round"/></svg>
+</section>
+
+<!-- 1 turn -->
+<section class="shot dark" id="s1">
+  <div class="head" style="top:700px;font-size:172px;line-height:1.1">
+    <span class="line"><span>Now you can</span></span>
+    <span class="line" style="font-size:270px;margin-top:10px"><span class="mark" id="mark1">opt out.</span></span>
+  </div>
+</section>
+
+<!-- 2 action -->
+<section class="shot light" id="s2">
+  <div class="kicker" style="top:135px;font-size:58px">One command. Every server using Kaivor.</div>
+  <div class="chat" id="chat2" style="top:250px;height:1530px"></div>
+  <svg class="cursor" id="cur2" viewBox="0 0 24 24"><path d="M4 2 L4 19 L8.6 14.8 L11.6 21.4 L14.4 20.2 L11.5 13.7 L17.6 13.5 Z" fill="#E9DCC0" stroke="#211824" stroke-width="1.4" stroke-linejoin="round"/></svg>
+</section>
+
+<!-- 3 result -->
+<section class="shot dark" id="s3">
+  <div class="head" style="top:140px;font-size:138px;line-height:1.06">
+    <span class="line"><span>Delete it now.</span></span>
+    <span class="line"><span>Nothing to snipe.</span></span>
+  </div>
+  <div class="chat" id="chat3" style="top:510px;height:1270px"></div>
+  <div class="ctx" id="ctx3" style="display:none"><div class="danger">Delete Message</div></div>
+  <svg class="cursor" id="cur3" viewBox="0 0 24 24"><path d="M4 2 L4 19 L8.6 14.8 L11.6 21.4 L14.4 20.2 L11.5 13.7 L17.6 13.5 Z" fill="#E9DCC0" stroke="#211824" stroke-width="1.4" stroke-linejoin="round"/></svg>
+</section>
+
+<!-- 4 what it covers -->
+<section class="shot light" id="s4">
+  <div class="head" style="top:330px;font-size:130px;line-height:1.05">
+    <span class="line"><span>You’re out of</span></span>
+  </div>
+  <div class="bars" style="top:540px" id="bars4">
+    <span class="bar"><span class="k">XP<span class="on">XP</span></span></span>
+    <span class="bar"><span class="k">Leaderboards<span class="on">Leaderboards</span></span></span>
+    <span class="bar"><span class="k">Snipe<span class="on">Snipe</span></span></span>
+    <span class="bar"><span class="k">Server backups<span class="on">Server backups</span></span></span>
+    <span class="bar"><span class="k">AI features<span class="on">AI features</span></span></span>
+  </div>
+</section>
+
+<!-- 5 key fact -->
+<section class="shot dark" id="s5">
+  <div class="head" style="top:640px;font-size:112px;line-height:1.08">
+    <span class="line"><span>Moderation, security</span></span>
+    <span class="line"><span>and logging a server</span></span>
+    <span class="line"><span>set up <span style="color:var(--accent)">still apply.</span></span></span>
+  </div>
+  <div class="small" style="top:1090px" id="small5">,privacy optin undoes this.</div>
+</section>
+
+<!-- 6 end card -->
+<section class="shot light" id="s6">
+  <img class="logo" id="logo6" src="../../assets/kaivor-logo.png" style="top:360px">
+  <div class="kicker" style="top:750px" id="new6">New in Kaivor</div>
+  <div class="head" style="top:825px;font-size:142px;line-height:1.1">
+    <span class="line"><span>Privacy opt-out</span></span>
+  </div>
+  <div class="rule" id="rule6" style="top:1020px"></div>
+  <div class="cmdbox" style="top:1090px" id="cmd6"><span>,privacy optout</span></div>
+  <div class="url" style="top:1240px" id="url6">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+window.VIDEO = { fps: FPS, shots: [
+  { name: 'hook', seconds: 3.0 }, { name: 'turn', seconds: 1.2 }, { name: 'action', seconds: 5.4 },
+  { name: 'result', seconds: 3.6 }, { name: 'covers', seconds: 3.0 }, { name: 'fact', seconds: 2.4 }, { name: 'end', seconds: 3.0 },
+]};
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inOut = (t) => { t = Math.min(1, Math.max(0, t)); return t < .5 ? 8 * t ** 4 : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+
+// made-up users
+const U = {
+  teo:  { name: 'teo', color: '#E8C48A', bg: '#A9783A', i: 'T' },
+  mira: { name: 'mira', color: '#E3B7F0', bg: '#8C5BA8', i: 'M' },
+  noor: { name: 'noor', color: '#F0B27A', bg: '#B5713A', i: 'N' },
+  kofi: { name: 'kofi', color: '#9AD0EC', bg: '#2E7FA8', i: 'K' },
+  vex:  { name: 'vex', color: '#DBDEE1', bg: '#4C6A9A', i: 'V' },
+  bot:  { name: 'Kaivor', color: '#F2F3F5', bot: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const mini = (u) => `<span class="mini" style="background:${U[u].bg}">${U[u].i}</span>`;
+
+// ctx.success text from src/commands/information/privacy.ts, word for word (prefix ","). The [[ ]] pairs only add the marker highlight.
+const OPTOUT = 'You have opted out, [[in every server using Kaivor]]. You earn [[no XP]] and are [[left off leaderboards]], ' +
+  'your deleted and edited messages are [[not kept for snipe]], your messages are [[left out of server backups]], ' +
+  'and what you write is [[not sent to AI features]]. Moderation, security and logging a server set up still apply. ' +
+  'Data already stored stays until you run `,privacy delete`; `,privacy optin` undoes this.';
+const optoutHTML = () => '✅ ' + esc(OPTOUT).replace(/\[\[(.+?)\]\]/g, '<span class="hl">$1</span>').replace(/`(.+?)`/g, '<code>$1</code>');
+
+function contentHTML(m) {
+  if (m.optout) return `<div class="embed">${optoutHTML()}</div>`;
+  if (m.notfound) return `<div class="embed err">❌ There is nothing to snipe here.</div>`;
+  if (m.snipe) return `<div class="embed snipe"><div class="author">${mini(m.snipe)}${U[m.snipe].name}</div>${esc(m.text)}<div class="foot">Deleted · entry 1 • Today at ${m.deleted}</div></div>`;
+  return `<div class="text${m.cmd ? ' cmd' : ''}">${esc(m.text)}</div>`;
+}
+
+function msgHTML(m, i, arr) {
+  const u = U[m.u];
+  const grouped = i > 0 && arr[i - 1].u === m.u && !m.replyTo;
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>`
+                   : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.bot ? '<span class="app">APP</span>' : '';
+  const cls = 'msg' + (m.hover ? ' hover' : '');
+  const id = m.id ? ` data-id="${m.id}"` : '';
+  if (grouped) return `<div class="${cls}"${id} style="padding-top:2px"><div class="av" style="height:0"></div><div class="body">${contentHTML(m)}</div></div>`;
+  const reply = m.replyTo ? `<div class="replyline">${mini(m.replyTo)}<b style="color:${U[m.replyTo].color}">${U[m.replyTo].name}</b> ${esc(m.replyText)}</div>` : '';
+  return `<div style="padding-top:${m.replyTo ? 12 : 0}px">${reply ? `<div style="padding:0 34px">${reply}</div>` : ''}<div class="${cls}"${id} ${m.replyTo ? 'style="padding-top:0"' : ''}>${av}<div class="body"><div class="meta"><span class="who" style="color:${u.color}">${u.name}</span>${app}<span class="time">Today at ${m.time || '21:14'}</span></div>${contentHTML(m)}</div></div></div>`;
+}
+
+function renderChat(el, t, msgs, input, channel = 'general', topic = 'games and nonsense') {
+  const shown = msgs.filter((m) => t >= m.at && !(m.gone !== undefined && t >= m.gone));
+  const newest = shown[shown.length - 1];
+  el.innerHTML = `
+    <div class="top"><span class="hash">#</span><span class="name">${channel}</span><span class="topic">${topic}</span></div>
+    <div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>
+    <div class="input"><span class="plus">+</span>${input && input.text !== undefined
+      ? `<span class="typed">${esc(input.text)}${input.caret ? '<span class="caret"></span>' : ''}</span>`
+      : `<span class="ph">Message #${channel}</span>`}
+      ${input && input.typing ? '<span class="typing"><b>Kaivor</b> is typing…</span>' : ''}</div>`;
+  if (newest && t < newest.at + 0.3) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, 0.2));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function lines(sec, t, starts) {
+  sec.querySelectorAll('.line > span').forEach((s, i) => {
+    const a = starts[Math.min(i, starts.length - 1)];
+    const e = out4(p(t, a, 0.4));
+    s.style.transform = `translateY(${(1 - e) * 105}%)`;
+  });
+}
+
+// the delete gesture: hover, menu, click. Cursor and menu are placed from the message's real position.
+function deleteGesture(sec, chat, t, id, menuEl, curEl, tMenu, tClick, tGone) {
+  const row = chat.querySelector(`[data-id="${id}"]`);
+  if (t >= tGone || !row) { menuEl.style.display = 'none'; curEl.style.display = 'none'; return; }
+  const r = row.getBoundingClientRect();
+  const mx = 560, my = r.top - 62;
+  menuEl.style.left = mx + 'px'; menuEl.style.top = my + 'px';
+  menuEl.style.display = t >= tMenu ? 'block' : 'none';
+  const tx = mx + 170, ty = my + 44;
+  const k = inOut(p(t, 0, tClick - 0.05));
+  curEl.style.display = 'block';
+  curEl.style.left = 880 + (tx - 880) * k + 'px';
+  curEl.style.top = r.top - 180 + (ty - (r.top - 180)) * k + 'px';
+  curEl.style.transform = `scale(${t > tClick - 0.05 ? 0.86 : 1})`;
+}
+
+// ---- shots ----
+const hookMsgs = [
+  { u: 'kofi', text: 'one more?', at: -1, time: '20:51' },
+  { u: 'mira', text: 'fine. last one', at: -1, time: '20:52' },
+  { u: 'teo', text: 'that’s what you said at 8', at: -1, time: '20:52' },
+  { u: 'vex', text: 'who queued me with bots', at: -1, time: '21:02' },
+  { u: 'noor', text: 'wasn’t me', at: -1, time: '21:03' },
+  { u: 'teo', text: 'gg everyone', at: -1, time: '21:09' },
+  { u: 'kofi', text: 'best game of my life. i’m cracked now', at: -1, time: '21:12' },
+  { u: 'noor', text: 'kofi with the comeback', at: -1, time: '21:13' },
+  { u: 'mira', text: 'i let kofi win', at: -1, gone: 0.6, id: 'del', hover: true },
+  { u: 'teo', text: ',snipe', at: 1.2, cmd: true },
+  { u: 'bot', replyTo: 'teo', replyText: ',snipe', snipe: 'mira', text: 'i let kofi win', deleted: '21:14', at: 1.8 },
+  { u: 'kofi', text: 'EXCUSE ME', at: 2.4 },
+];
+
+const actionCmd = ',privacy optout';
+const actionMsgs = [
+  { u: 'kofi', text: 'one more?', at: -1, time: '20:51' },
+  { u: 'mira', text: 'fine. last one', at: -1, time: '20:52' },
+  { u: 'vex', text: 'who queued me with bots', at: -1, time: '21:02' },
+  { u: 'teo', text: 'gg everyone', at: -1, time: '21:09' },
+  { u: 'kofi', text: 'best game of my life. i’m cracked now', at: -1, time: '21:12' },
+  { u: 'noor', text: 'kofi with the comeback', at: -1, time: '21:13' },
+  { u: 'teo', text: ',snipe', at: -1, cmd: true },
+  { u: 'bot', replyTo: 'teo', replyText: ',snipe', snipe: 'mira', text: 'i let kofi win', deleted: '21:14', at: -1 },
+  { u: 'kofi', text: 'EXCUSE ME', at: -1 },
+  { u: 'noor', text: 'mira how could you', at: -1 },
+  { u: 'mira', text: actionCmd, at: 1.8, cmd: true, time: '21:15' },
+  { u: 'bot', replyTo: 'mira', replyText: actionCmd, optout: true, at: 2.4, time: '21:15' },
+];
+
+const resultMsgs = [
+  { u: 'noor', text: 'ranked after this?', at: -1, time: '21:14' },
+  { u: 'teo', text: 'yes', at: -1, time: '21:14' },
+  { u: 'vex', text: 'anyone queueing?', at: -1, time: '21:15' },
+  { u: 'kofi', text: 'me. i’m unbeatable now', at: -1, time: '21:15' },
+  { u: 'mira', text: 'are you', at: -1, time: '21:15' },
+  { u: 'noor', text: 'rematch?', at: -1, time: '21:15' },
+  { u: 'kofi', text: 'rematch. no mercy', at: -1, time: '21:18' },
+  { u: 'teo', text: 'gg kofi', at: -1, time: '21:26' },
+  { u: 'mira', text: 'i let kofi win again', at: -1, gone: 0.6, id: 'del', hover: true, time: '21:27' },
+  { u: 'teo', text: ',snipe', at: 1.2, cmd: true, time: '21:27' },
+  { u: 'bot', replyTo: 'teo', replyText: ',snipe', notfound: true, at: 1.8, time: '21:27' },
+  { u: 'kofi', text: 'what did she say', at: 2.4, time: '21:27' },
+  { u: 'mira', text: 'nothing', at: 3.0, time: '21:27' },
+];
+
+const S = [...document.querySelectorAll('.shot')];
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, t, [0, 1.8]);
+    const chat = document.getElementById('chat0');
+    renderChat(chat, t, hookMsgs);
+    deleteGesture(sec, chat, t, 'del', document.getElementById('ctx0'), document.getElementById('cur0'), 0.3, 0.55, 0.6);
+  } else if (shot === 1) {
+    lines(sec, t, [0, 0.12]);
+    const e = out4(p(t, 0.3, 0.25));
+    document.getElementById('mark1').style.background = `linear-gradient(90deg, var(--accent) ${e * 100}%, transparent ${e * 100}%)`;
+    document.getElementById('mark1').style.color = e > 0.5 ? 'var(--dark)' : 'var(--light)';
+  } else if (shot === 2) {
+    const cur = document.getElementById('cur2');
+    const k = inOut(p(t, 0.1, 0.7));
+    cur.style.left = 820 + (330 - 820) * k + 'px';
+    cur.style.top = 1200 + (1660 - 1200) * k + 'px';
+    cur.style.transform = `scale(${t > 0.8 && t < 0.93 ? 0.86 : 1})`;
+    cur.style.display = t < 1.8 ? 'block' : 'none';
+    const n = Math.round(actionCmd.length * p(t, 0.9, 0.75));
+    let input;
+    if (t >= 0.85 && t < 1.8) input = { text: actionCmd.slice(0, n), caret: true };
+    else if (t >= 1.8 && t < 2.4) input = { typing: true };
+    renderChat(document.getElementById('chat2'), t, actionMsgs, input);
+    sec.querySelector('.kicker').style.opacity = String(out4(p(t, 0, 0.3)));
+    const hl = [...document.querySelectorAll('#chat2 .hl')];
+    hl.forEach((h, i) => { h.style.backgroundSize = `${out4(p(t, 2.7 + i * 0.3, 0.22)) * 100}% 100%`; });
+  } else if (shot === 3) {
+    lines(sec, t, [0, 1.8]);
+    const chat = document.getElementById('chat3');
+    renderChat(chat, t, resultMsgs, undefined, 'ranked', 'queue up here');
+    deleteGesture(sec, chat, t, 'del', document.getElementById('ctx3'), document.getElementById('cur3'), 0.3, 0.55, 0.6);
+  } else if (shot === 4) {
+    lines(sec, t, [0]);
+    const at = [0.3, 0.9, 1.5, 1.8, 2.1];
+    document.querySelectorAll('#bars4 .on').forEach((el, i) => {
+      const e = out4(p(t, at[i], 0.16));
+      el.style.clipPath = `inset(0 ${(1 - e) * 100}% 0 0)`;
+    });
+  } else if (shot === 5) {
+    lines(sec, t, [0, 0.08, 0.16]);
+    const q = out4(p(t, 1.2, 0.3));
+    const el = document.getElementById('small5');
+    el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 20}px)`;
+  } else if (shot === 6) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo6');
+    logo.style.opacity = String(e);
+    logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, t, [0.15]);
+    const r = out4(p(t, 0.6, 0.4));
+    const rule = document.getElementById('rule6');
+    rule.style.width = 600 * r + 'px'; rule.style.marginLeft = -300 * r + 'px';
+    for (const [id, a] of [['new6', 0.1], ['cmd6', 0.6], ['url6', 0.9]]) {
+      const el = document.getElementById(id), q = out4(p(t, a, 0.3));
+      el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+    }
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>

@@ -9,6 +9,7 @@ Features and looks already used. Don't repeat a feature unless asked, and give e
 
 ## Made here
 
-| Date | Feature (commit) | Look | Fonts | Posted to |
-|---|---|---|---|---|
-| 2026-11-04 | Sticky messages (`5ec5269`) | moss & bone: green-black #141712 / bone #ECE7DC by shot, forest accent #3F7D5C | Bricolage Grotesque, Figtree (chat UI), JetBrains Mono (command) | TikTok, YouTube Shorts (posted 2026-11-03 19:33) |
+| Date | Feature (commit) | Look | Fonts | Music | Posted to |
+|---|---|---|---|---|---|
+| 2026-11-04 | Sticky messages (`5ec5269`) | moss & bone: green-black #141712 / bone #ECE7DC by shot, forest accent #3F7D5C | Bricolage Grotesque, Figtree (chat UI), JetBrains Mono (command) | Own sound | TikTok, YouTube Shorts (posted 2026-11-03 19:33) |
+| 2026-11-04 | Privacy opt-out, `privacy optout` (`572ea35`) | manila & aubergine: manila #E9DCC0 / aubergine #211824 by shot, marker-mustard accent #D6A11E, knock-out redaction bars | Big Shoulders Display, Hanken Grotesk (chat UI), IBM Plex Mono (commands) | Own sound (`music/` is empty): 100 BPM D-minor groove in `sound.py` | TikTok, YouTube Shorts |
