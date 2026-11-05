@@ -1,0 +1,400 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: the role shop in the economy (aurora-bot commit 04512ca).
+  Look: "shopfront": petrol #12282C and till paper #EFEDE4 swapping by shot, one accent (coral #EC5A72, also the role's colour),
+  a striped awning, a till receipt with a PAID stamp, full-bleed chat. Alfa Slab One headlines, Schibsted Grotesk for chat and
+  receipt, DM Mono only for commands.
+  Facts checked:
+    - src/commands/economy/economy.ts: aliases bal, daily, shop, buy; ctx.info / ctx.success text (copied word for word);
+      shop embed (title "Shop", rows "**1.** <@&role> · 250 coins", footer "Buy with economy buy <number>");
+      `economy config on`, `economy stock @Collector 500` (the example in the code), their replies
+    - src/services/economy/index.ts: default currency "coins", default daily 100, DAILY_COOLDOWN_MS 20 hours, shop sorted by price
+      ascending, 'You cannot afford that yet.', shopRoleProblem -> 'a shop role goes to anyone who can pay'
+    - src/services/roles/autorole.ts: 'That role has moderation permissions, and ${audience}.'
+    - src/framework/dispatcher.ts withUsage: a UserError on a prefix command gets "Usage: `,<command name> <usage>`" added, so both
+      error embeds show that line
+    - framework/embeds.ts COLORS (success 0x5bc98c, error 0xe0575b, info 0x6f9ecf), framework/icons.ts fallbacks (✅ ❌ ℹ️),
+      .env.example DEFAULT_EMBED_COLOR #658a95 for the shop embed; prefix commands answer with message.reply
+  The count adds up: 420 + 100 = 520, 520 - 500 = 20. 420 is 80 short of 500. 21:14 + 20 h = 17:14, so 17:41 the next day is allowed.
+  Beat grid: 120 BPM (0.5 s, 30 frames). Shots are 6, 2, 11, 7, 6, 5 and 6 beats, 21.5 s in total.
+-->
+<style>
+@font-face { font-family: 'Slab'; src: url('../../node_modules/@fontsource/alfa-slab-one/files/alfa-slab-one-latin-400-normal.woff2'); }
+@font-face { font-family: 'Schib'; font-weight: 400; src: url('../../node_modules/@fontsource/schibsted-grotesk/files/schibsted-grotesk-latin-400-normal.woff2'); }
+@font-face { font-family: 'Schib'; font-weight: 500; src: url('../../node_modules/@fontsource/schibsted-grotesk/files/schibsted-grotesk-latin-500-normal.woff2'); }
+@font-face { font-family: 'Schib'; font-weight: 600; src: url('../../node_modules/@fontsource/schibsted-grotesk/files/schibsted-grotesk-latin-600-normal.woff2'); }
+@font-face { font-family: 'Schib'; font-weight: 700; src: url('../../node_modules/@fontsource/schibsted-grotesk/files/schibsted-grotesk-latin-700-normal.woff2'); }
+@font-face { font-family: 'DMMono'; font-weight: 500; src: url('../../node_modules/@fontsource/dm-mono/files/dm-mono-latin-500-normal.woff2'); }
+
+:root { --ink: #12282C; --paper: #EFEDE4; --accent: #EC5A72; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--ink); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--ink); color: var(--paper); }
+.light { background: var(--paper); color: var(--ink); }
+
+/* awning: nine stripes, coral at both ends, so it mirrors around x = 540 */
+.awning { position: absolute; left: 0; top: 0; width: 1080px; height: 190px; transform-origin: 50% 0; }
+
+/* headline: lines slide up out of a mask */
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Slab'; }
+.line { display: block; overflow: hidden; padding: 6px 20px; white-space: nowrap; }
+.line > span { display: inline-block; will-change: transform; }
+.mark { color: var(--accent); }
+
+/* generic Discord-style chat, full bleed (no Discord logo or wordmark) */
+.chat { position: absolute; left: 0; width: 1080px; background: #313338; overflow: hidden;
+        font-family: 'Schib'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 40px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 50px; color: #80848E; font-weight: 500; }
+.chat .top .name { font-size: 38px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 30px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 26px; padding: 12px 40px; }
+.av { width: 88px; height: 88px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 38px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: baseline; gap: 14px; }
+.who { font-size: 36px; font-weight: 600; }
+.app { font-size: 21px; font-weight: 700; color: #fff; background: #5865F2; border-radius: 6px; padding: 3px 9px; transform: translateY(-4px); }
+.time { font-size: 25px; color: #949BA4; }
+.text { font-size: 36px; line-height: 1.36; color: #DBDEE1; margin-top: 2px; }
+.text.cmd { font-family: 'DMMono'; font-weight: 500; font-size: 35px; }
+.replyline { display: flex; align-items: center; gap: 10px; font-size: 26px; color: #B5BAC1; margin: 0 0 4px 54px; position: relative; white-space: nowrap; }
+.replyline::before { content: ''; position: absolute; left: -66px; top: 16px; width: 54px; height: 22px; border-left: 3px solid #4E5058; border-top: 3px solid #4E5058; border-top-left-radius: 10px; }
+.replyline .mini { width: 34px; height: 34px; border-radius: 50%; color: #fff; font-size: 17px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.replyline b { font-weight: 600; }
+.replyline .c { font-family: 'DMMono'; font-weight: 500; font-size: 25px; }
+.embed { margin-top: 10px; background: #2B2D31; border-radius: 6px; border-left: 8px solid #5BC98C; padding: 20px 28px; font-size: 35px; line-height: 1.42; max-width: 830px; }
+.embed b { font-weight: 700; color: #F2F3F5; }
+.embed.err { border-left-color: #E0575B; }
+.embed.info { border-left-color: #6F9ECF; }
+.embed.brand { border-left-color: #658A95; min-width: 620px; }
+.embed code { font-family: 'DMMono'; font-weight: 500; font-size: 29px; background: #1E1F22; padding: 2px 8px; border-radius: 4px; }
+.embed .title { font-size: 37px; font-weight: 700; color: #F2F3F5; margin-bottom: 8px; }
+.embed .foot { font-size: 25px; color: #B5BAC1; margin-top: 12px; }
+.role { font-weight: 600; border-radius: 4px; padding: 0 6px; }
+.input { flex: none; margin: 0 28px 44px; height: 92px; background: #383A40; border-radius: 12px; display: flex; align-items: center; gap: 22px; padding: 0 26px; position: relative; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 700; display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 33px; color: #6D6F78; white-space: nowrap; overflow: hidden; }
+.typed { font-family: 'DMMono'; font-weight: 500; font-size: 35px; color: #DBDEE1; white-space: nowrap; overflow: hidden; }
+.caret { display: inline-block; width: 3px; height: 36px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+.typing { position: absolute; left: 30px; bottom: -36px; font-size: 24px; color: #B5BAC1; }
+
+/* receipt */
+.receipt { position: absolute; left: 130px; top: 320px; width: 820px; background: var(--paper); color: var(--ink); font-family: 'Schib';
+           clip-path: polygon(0 0, 100% 0, 100% calc(100% - 20px), 97.5% 100%, 95% calc(100% - 20px), 92.5% 100%, 90% calc(100% - 20px), 87.5% 100%, 85% calc(100% - 20px), 82.5% 100%, 80% calc(100% - 20px), 77.5% 100%, 75% calc(100% - 20px), 72.5% 100%, 70% calc(100% - 20px), 67.5% 100%, 65% calc(100% - 20px), 62.5% 100%, 60% calc(100% - 20px), 57.5% 100%, 55% calc(100% - 20px), 52.5% 100%, 50% calc(100% - 20px), 47.5% 100%, 45% calc(100% - 20px), 42.5% 100%, 40% calc(100% - 20px), 37.5% 100%, 35% calc(100% - 20px), 32.5% 100%, 30% calc(100% - 20px), 27.5% 100%, 25% calc(100% - 20px), 22.5% 100%, 20% calc(100% - 20px), 17.5% 100%, 15% calc(100% - 20px), 12.5% 100%, 10% calc(100% - 20px), 7.5% 100%, 5% calc(100% - 20px), 2.5% 100%, 0 calc(100% - 20px)); }
+.receipt .inner { padding: 60px 70px 350px; }
+.receipt h3 { font-family: 'Slab'; font-weight: 400; font-size: 84px; text-align: center; margin-bottom: 8px; }
+.receipt .sub { text-align: center; font-size: 36px; font-weight: 500; margin-bottom: 40px; }
+.receipt .row { display: flex; justify-content: space-between; align-items: baseline; font-size: 56px; font-weight: 600; padding: 15px 0; }
+.receipt .row .c { font-family: 'DMMono'; font-weight: 500; font-size: 52px; }
+.receipt .row.total { border-top: 5px solid var(--ink); margin-top: 18px; padding-top: 30px; font-weight: 700; font-size: 66px; }
+.receipt .row.total .n { color: var(--accent); }
+.receipt .n { font-variant-numeric: tabular-nums; }
+.stamp { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Slab'; font-size: 150px; color: var(--accent); pointer-events: none; }
+.stamp span { display: inline-block; border: 12px solid var(--accent); padding: 8px 40px 2px; }
+.after { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Schib'; font-weight: 600; font-size: 52px; }
+.after .who2 { color: var(--accent); font-weight: 700; }
+
+/* end card */
+.logo { position: absolute; left: 50%; width: 320px; height: 320px; margin-left: -160px; }
+.kicker { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Schib'; font-weight: 700; font-size: 58px; }
+.cmdbox { position: absolute; left: 0; right: 0; text-align: center; font-family: 'DMMono'; font-weight: 500; font-size: 64px; }
+.cmdbox span { background: var(--ink); color: var(--paper); padding: 16px 36px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Schib'; font-weight: 700; font-size: 74px; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook -->
+<section class="shot light" id="s0">
+  <svg class="awning" viewBox="0 0 1080 190"></svg>
+  <div class="head" style="top:216px;font-size:116px;line-height:1.08">
+    <span class="line"><span>The role is 500.</span></span>
+    <span class="line"><span>She has <span class="mark">420.</span></span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:530px;height:1270px"></div>
+</section>
+
+<!-- 1 turn -->
+<section class="shot dark" id="s1">
+  <div class="head" style="top:640px;font-size:330px;line-height:1">
+    <span class="line"><span class="mark">20</span></span>
+  </div>
+  <div class="head" style="top:1000px;font-size:128px;line-height:1">
+    <span class="line"><span>hours later</span></span>
+  </div>
+</section>
+
+<!-- 2 action -->
+<section class="shot light" id="s2">
+  <div class="head" style="top:96px;font-size:128px;line-height:1.08">
+    <span class="line"><span>One daily.</span></span>
+    <span class="line"><span>One buy.</span></span>
+  </div>
+  <div class="chat" id="chat2" style="top:430px;height:1370px"></div>
+</section>
+
+<!-- 3 receipt -->
+<section class="shot dark" id="s3">
+  <div class="receipt" id="rcpt">
+    <div class="inner">
+      <h3>Role shop</h3>
+      <div class="sub">one role, paid in coins</div>
+      <div class="row"><span>Balance</span><span class="n">420</span></div>
+      <div class="row"><span class="c">,daily</span><span class="n">+100</span></div>
+      <div class="row"><span>@Collector</span><span class="n">−500</span></div>
+      <div class="row total"><span>Left</span><span class="n">20</span></div>
+    </div>
+  </div>
+  <div class="stamp" id="stamp" style="top:1060px"><span>PAID</span></div>
+  <div class="after" id="after3" style="top:1450px"><span class="who2">mira</span> has the role now.</div>
+</section>
+
+<!-- 4 staff -->
+<section class="shot light" id="s4">
+  <svg class="awning" viewBox="0 0 1080 190"></svg>
+  <div class="head" style="top:216px;font-size:116px;line-height:1.08">
+    <span class="line"><span>Your staff</span></span>
+    <span class="line"><span>stock the shop.</span></span>
+  </div>
+  <div class="chat" id="chat4" style="top:530px;height:1270px"></div>
+</section>
+
+<!-- 5 key fact -->
+<section class="shot dark" id="s5">
+  <div class="head" style="top:460px;font-size:136px;line-height:1.08">
+    <span class="line"><span>Staff roles</span></span>
+    <span class="line"><span class="mark">can’t be sold.</span></span>
+  </div>
+  <div class="chat" id="chat5" style="top:880px;height:540px"></div>
+</section>
+
+<!-- 6 end card -->
+<section class="shot light" id="s6">
+  <svg class="awning" viewBox="0 0 1080 190"></svg>
+  <img class="logo" id="logo6" src="../../assets/kaivor-logo.png" style="top:420px">
+  <div class="kicker" style="top:790px" id="new6">New in Kaivor</div>
+  <div class="head" style="top:870px;font-size:172px;line-height:1.1">
+    <span class="line"><span>Role shop</span></span>
+  </div>
+  <div class="cmdbox" style="top:1140px" id="cmd6"><span>,shop</span></div>
+  <div class="url" style="top:1300px" id="url6">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+window.VIDEO = { fps: FPS, shots: [
+  { name: 'hook', seconds: 3.0 }, { name: 'turn', seconds: 1.0 }, { name: 'action', seconds: 5.5 },
+  { name: 'receipt', seconds: 3.5 }, { name: 'staff', seconds: 3.0 }, { name: 'fact', seconds: 2.5 }, { name: 'end', seconds: 3.0 },
+]};
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+
+// made-up users
+const CORAL = '#EC5A72';
+const U = {
+  teo:  { name: 'teo', color: CORAL, bg: '#A9783A', i: 'T' },
+  mira: { name: 'mira', color: '#DBDEE1', bg: '#8C5BA8', i: 'M' },
+  noor: { name: 'noor', color: '#DBDEE1', bg: '#B5713A', i: 'N' },
+  kofi: { name: 'kofi', color: '#7FC4B8', bg: '#2E7F78', i: 'K' },
+  bot:  { name: 'Kaivor', color: '#F2F3F5', bot: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const mini = (u) => `<span class="mini" style="background:${U[u].bg}">${U[u].i}</span>`;
+const role = (name, c) => `<span class="role" style="color:${c};background:${c}22">@${name}</span>`;
+
+// Word for word from src/commands/economy/economy.ts, src/services/economy/index.ts and src/services/roles/autorole.ts,
+// with dispatcher.ts withUsage adding the usage line on prefix commands.
+const COLLECTOR = role('Collector', CORAL);
+const R = {
+  bal:    ['info', 'ℹ️ You have <b>420</b> coins.'],
+  broke:  ['err', '❌ You cannot afford that yet.<br>Usage: <code>,economy buy &lt;number&gt;</code>'],
+  daily:  ['', '✅ You collected <b>100</b> coins. You now have <b>520</b>.'],
+  bought: ['', `✅ You bought ${COLLECTOR}. You have <b>20</b> coins left.`],
+  on:     ['', '✅ The economy is <b>on</b>.'],
+  stock:  ['', `✅ ${COLLECTOR} is in the shop for <b>500</b>.`],
+  staff:  ['err', '❌ That role has moderation permissions, and a shop role goes to anyone who can pay.<br>Usage: <code>,economy stock &lt;role&gt; &lt;price&gt;</code>'],
+};
+const SHOP = `<div class="embed brand"><div class="title">Shop</div>` +
+  `<b>1.</b> ${role('Night Owl', '#8FA8E0')} · 250 coins<br><b>2.</b> ${COLLECTOR} · 500 coins<br><b>3.</b> ${role('Patron', '#E6C069')} · 2,000 coins` +
+  `<div class="foot">Buy with economy buy &lt;number&gt;</div></div>`;
+
+let miraCoral = false;
+const colorOf = (u) => (u === 'mira' && miraCoral ? CORAL : U[u].color);
+
+function contentHTML(m) {
+  if (m.shop) return SHOP;
+  if (m.r) return `<div class="embed ${R[m.r][0]}">${R[m.r][1]}</div>`;
+  return `<div class="text${m.cmd ? ' cmd' : ''}">${esc(m.text)}</div>`;
+}
+
+function msgHTML(m, i, arr) {
+  const u = U[m.u];
+  const grouped = i > 0 && arr[i - 1].u === m.u && !m.replyTo;
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>`
+                   : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.bot ? '<span class="app">APP</span>' : '';
+  if (grouped) return `<div class="msg" data-u="${m.u}" style="padding-top:0"><div class="av" style="height:0"></div><div class="body">${contentHTML(m)}</div></div>`;
+  const reply = m.replyTo ? `<div class="replyline">${mini(m.replyTo)}<b style="color:${colorOf(m.replyTo)}">${U[m.replyTo].name}</b> <span class="c">${esc(m.replyText)}</span></div>` : '';
+  return `<div style="padding-top:${m.replyTo ? 10 : 0}px">${reply ? `<div style="padding:0 40px">${reply}</div>` : ''}<div class="msg" data-u="${m.u}" ${m.replyTo ? 'style="padding-top:0"' : ''}>${av}<div class="body"><div class="meta"><span class="who" style="color:${colorOf(m.u)}">${u.name}</span>${app}<span class="time">${m.time || 'Today at 21:14'}</span></div>${contentHTML(m)}</div></div></div>`;
+}
+
+function renderChat(el, t, msgs, input, channel = 'lounge', topic = 'coins talk') {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  el.innerHTML = `
+    <div class="top"><span class="hash">#</span><span class="name">${channel}</span><span class="topic">${topic}</span></div>
+    <div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>
+    ${input === null ? '' : `<div class="input"><span class="plus">+</span>${input && input.text !== undefined
+      ? `<span class="typed">${esc(input.text)}${input.caret ? '<span class="caret"></span>' : ''}</span>`
+      : `<span class="ph">Message #${channel}</span>`}
+      ${input && input.typing ? '<span class="typing"><b>Kaivor</b> is typing…</span>' : ''}</div>`}`;
+  if (newest && t < newest.at + 0.3) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, 0.2));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function lines(sec, t, starts) {
+  sec.querySelectorAll('.line > span').forEach((s, i) => {
+    const a = starts[Math.min(i, starts.length - 1)];
+    const e = out4(p(t, a, 0.32));
+    s.style.transform = `translateY(${(1 - e) * 112}%)`;
+  });
+}
+
+function awning(svg, other) {
+  let h = '';
+  const W = 120;
+  for (let i = 0; i < 9; i++) {
+    const c = i % 2 ? other : CORAL;
+    h += `<path fill="${c}" d="M${i * W} 0 h${W} v130 a${W / 2} ${W / 2} 0 0 1 -${W} 0 z"/>`;
+  }
+  svg.innerHTML = h;
+}
+document.querySelectorAll('.awning').forEach((a) => awning(a, '#12282C'));
+
+// ---- shots ----
+const hookMsgs = [
+  { u: 'noor', text: 'who changed the music', at: -1, time: 'Today at 21:09' },
+  { u: 'mira', text: 'teo why is your name pink', at: -1 },
+  { u: 'teo', text: 'bought it', at: -1 },
+  { u: 'mira', text: ',shop', at: -1, cmd: true },
+  { u: 'bot', replyTo: 'mira', replyText: ',shop', shop: true, at: -1 },
+  { u: 'mira', text: ',bal', at: -1, cmd: true },
+  { u: 'bot', replyTo: 'mira', replyText: ',bal', r: 'bal', at: -1 },
+  { u: 'mira', text: ',buy 2', at: 0.5, cmd: true },
+  { u: 'bot', replyTo: 'mira', replyText: ',buy 2', r: 'broke', at: 1.0 },
+  { u: 'teo', text: 'so close', at: 2.0 },
+];
+
+const y = (s) => 'Yesterday at ' + s;
+const actionMsgs = [
+  { u: 'kofi', text: 'rematch at nine?', at: -1, time: y('21:02') },
+  { u: 'noor', text: 'who changed the music', at: -1, time: y('21:09') },
+  { u: 'mira', text: 'teo why is your name pink', at: -1, time: y('21:14') },
+  { u: 'teo', text: 'bought it', at: -1, time: y('21:14') },
+  { u: 'mira', text: ',buy 2', at: -1, cmd: true, time: y('21:14') },
+  { u: 'bot', replyTo: 'mira', replyText: ',buy 2', r: 'broke', at: -1, time: y('21:14') },
+  { u: 'teo', text: 'so close', at: -1, time: y('21:15') },
+  { u: 'mira', text: ',daily', at: 0.5, cmd: true, time: 'Today at 17:41' },
+  { u: 'bot', replyTo: 'mira', replyText: ',daily', r: 'daily', at: 1.0, time: 'Today at 17:41' },
+  { u: 'mira', text: ',buy 2', at: 2.5, cmd: true, time: 'Today at 17:41' },
+  { u: 'bot', replyTo: 'mira', replyText: ',buy 2', r: 'bought', at: 3.0, time: 'Today at 17:41' },
+  { u: 'mira', text: 'finally', at: 4.5, time: 'Today at 17:42' },
+];
+
+const staffMsgs = [
+  { u: 'teo', text: 'everyone just sits on their coins', at: -1, time: 'Today at 12:01' },
+  { u: 'noor', text: 'can we sell roles here', at: -1, time: 'Today at 12:02' },
+  { u: 'kofi', text: 'give me a sec', at: -1, time: 'Today at 12:03' },
+  { u: 'kofi', text: ',economy config on', at: 0.25, cmd: true, time: 'Today at 12:03' },
+  { u: 'bot', replyTo: 'kofi', replyText: ',economy config on', r: 'on', at: 0.75, time: 'Today at 12:03' },
+  { u: 'kofi', text: ',economy stock @Collector 500', at: 1.25, cmd: true, time: 'Today at 12:04' },
+  { u: 'bot', replyTo: 'kofi', replyText: ',economy stock @Collector 500', r: 'stock', at: 1.75, time: 'Today at 12:04' },
+];
+
+const factMsgs = [
+  { u: 'kofi', text: ',economy stock @Mods 500', at: 0.25, cmd: true, time: 'Today at 12:05' },
+  { u: 'bot', replyTo: 'kofi', replyText: ',economy stock @Mods 500', r: 'staff', at: 0.75, time: 'Today at 12:05' },
+];
+
+const S = [...document.querySelectorAll('.shot')];
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  miraCoral = false;
+  if (shot === 0) {
+    lines(sec, t, [-0.2, 1.0]);
+    renderChat(document.getElementById('chat0'), t, hookMsgs);
+  } else if (shot === 1) {
+    lines(sec, t, [0, 0.1]);
+  } else if (shot === 2) {
+    lines(sec, t, [-0.1, 2.4]);
+    miraCoral = t >= 3.5;
+    let input;
+    const type = (cmd, a, d) => ({ text: cmd.slice(0, Math.round(cmd.length * p(t, a, d))), caret: true });
+    if (t < 0.5) input = type(',daily', 0.05, 0.35);
+    else if (t >= 0.5 && t < 1.0) input = { typing: true };
+    else if (t >= 2.0 && t < 2.5) input = type(',buy 2', 2.05, 0.35);
+    else if (t >= 2.5 && t < 3.0) input = { typing: true };
+    const chat = document.getElementById('chat2');
+    renderChat(chat, t, actionMsgs, input);
+    const fl = 1 - p(t, 3.5, 0.6);
+    if (t >= 3.5 && fl > 0) chat.querySelectorAll('[data-u="mira"]').forEach((m) => { m.style.background = `rgba(236,90,114,${0.24 * fl})`; });
+  } else if (shot === 3) {
+    const rows = [...document.querySelectorAll('#rcpt .row')];
+    const rc = document.getElementById('rcpt');
+    // paper feeds out in steps, one row on each beat
+    const at = [0.0, 0.5, 1.0, 1.5];
+    rc.style.height = '';
+    const full = rc.scrollHeight;
+    const ends = rows.map((r) => r.offsetTop + r.offsetHeight + 56);
+    const stops = [rows[0].offsetTop + 30, ...ends, full];
+    const times = [...at, 2.0 - 0.14];
+    let h = stops[0];
+    times.forEach((a, i) => { const e = out4(p(t, a, 0.14)); h += (stops[i + 1] - stops[i]) * e; });
+    rc.style.height = h + 'px';
+    rows.forEach((r, i) => { r.style.visibility = t >= at[i] ? 'visible' : 'hidden'; });
+    const sq = p(t, 2.0, 0.1);
+    const st = document.getElementById('stamp');
+    st.style.display = t >= 2.0 ? 'block' : 'none';
+    st.style.transform = `rotate(-9deg) scale(${1.25 - 0.25 * out4(sq)})`;
+    const q = out4(p(t, 2.5, 0.25));
+    const af = document.getElementById('after3');
+    af.style.opacity = String(q); af.style.transform = `translateY(${(1 - q) * 24}px)`;
+  } else if (shot === 4) {
+    lines(sec, t, [-0.2, 0.0]);
+    renderChat(document.getElementById('chat4'), t, staffMsgs, undefined, 'staff-room', 'for the team');
+  } else if (shot === 5) {
+    lines(sec, t, [0, 0.12]);
+    renderChat(document.getElementById('chat5'), t, factMsgs, null, 'staff-room', 'for the team');
+  } else if (shot === 6) {
+    const aw = sec.querySelector('.awning');
+    aw.style.transform = `scaleY(${out4(p(t, 0, 0.3))})`;
+    const e = out4(p(t, 0.05, 0.4));
+    const logo = document.getElementById('logo6');
+    logo.style.opacity = String(e);
+    logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, t, [0.15]);
+    for (const [id, a] of [['new6', 0.1], ['cmd6', 0.5], ['url6', 1.0]]) {
+      const el = document.getElementById(id), q = out4(p(t, a, 0.3));
+      el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+    }
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
