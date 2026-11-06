@@ -1,0 +1,443 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: advisory AI triage of message reports (aurora-bot commit 5035e69).
+  Look: "ambulance bay": asphalt #1A1C1F and wall-paint #ECEBE3 swapping by shot, one accent (hi-vis yellow #E6CF2A, also one
+  full-colour turn shot), a two-row Battenburg check strip like an ambulance's side. Barlow Condensed headlines, Atkinson
+  Hyperlegible for chat, Red Hat Mono only for commands.
+  Facts checked:
+    - src/commands/configuration/kaivor.ts: `kaivor triage <on|off>`, Manage Server, ctx.success text (word for word)
+    - src/services/ai/triage.ts: embed author "Suggested triage", COLORS.neutral bar, footer "Written by AI. A suggestion only; check
+      before acting.", replies to the report card, the "Severity / Suggested next step / Why" three-line shape from SYSTEM.
+      The three lines' wording is AI-written, so it differs per report: the shot says it is an example.
+    - src/services/moderation/messageReports.ts: reportCard (author line, fields Author, Channel, Reported by, Reason; footer Open;
+      buttons Jump to message, Delete message, Time out author (1h), Mark handled; warn colour), form title and label,
+      the confirmation text with triage on (word for word)
+    - src/events/interactions/buttons/msgreport.ts: "🗑 Message deleted", "· <@staff> <relative time>", delete button disabled after
+    - src/commands/logging/log.ts: right-click -> Apps -> "Report message"; src/services/contextMenus: Translate, Purge after this
+    - framework/embeds.ts COLORS (success 0x5bc98c, warn 0xe5a663, neutral 0x2b2d31), framework/icons.ts fallback ✅
+    - aurora-docs lib/cms/guides.ts AI_TRIAGE ("Staff make every decision." from its privacy section)
+  Counts: four reports land in the hook, four cards exist there.
+  Beat grid: 108 BPM (5/9 s per beat). Shots are 4, 3, 6, 6, 8, 5 and 6 beats, 38 beats, 21.1 s in total.
+-->
+<style>
+@font-face { font-family: 'Barlow'; font-weight: 800; src: url('../../node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-800-normal.woff2'); }
+@font-face { font-family: 'Barlow'; font-weight: 600; src: url('../../node_modules/@fontsource/barlow-condensed/files/barlow-condensed-latin-600-normal.woff2'); }
+@font-face { font-family: 'Atkinson'; font-weight: 400; src: url('../../node_modules/@fontsource/atkinson-hyperlegible/files/atkinson-hyperlegible-latin-400-normal.woff2'); }
+@font-face { font-family: 'Atkinson'; font-weight: 700; src: url('../../node_modules/@fontsource/atkinson-hyperlegible/files/atkinson-hyperlegible-latin-700-normal.woff2'); }
+@font-face { font-family: 'RedMono'; font-weight: 500; src: url('../../node_modules/@fontsource/red-hat-mono/files/red-hat-mono-latin-500-normal.woff2'); }
+@font-face { font-family: 'RedMono'; font-weight: 600; src: url('../../node_modules/@fontsource/red-hat-mono/files/red-hat-mono-latin-600-normal.woff2'); }
+
+:root { --ink: #1A1C1F; --paper: #ECEBE3; --accent: #E6CF2A; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--ink); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--ink); color: var(--paper); }
+.light { background: var(--paper); color: var(--ink); }
+.hivis { background: var(--accent); color: var(--ink); }
+
+/* Battenburg strip: 13 squares across, so it mirrors around x = 540 */
+.check { position: absolute; left: 0; width: 1080px; height: 166px; }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Barlow'; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; }
+.line { display: block; overflow: hidden; padding: 0 20px; white-space: nowrap; }
+.line > span { display: inline-block; will-change: transform; }
+.mark { color: var(--accent); }
+.band { background: var(--accent); color: var(--ink); padding: 0 22px; }
+
+/* generic Discord-style chat, full bleed (no Discord logo or wordmark) */
+.chat { position: absolute; left: 0; width: 1080px; background: #313338; overflow: hidden; font-family: 'Atkinson'; color: #DBDEE1; display: flex; flex-direction: column; }
+.top { height: 92px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 40px; border-bottom: 2px solid #26282C; }
+.top .hash { font-size: 50px; color: #80848E; }
+.top .name { font-size: 38px; font-weight: 700; color: #F2F3F5; }
+.top .topic { font-size: 30px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; }
+.list { flex: 1; overflow: hidden; position: relative; }
+.stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 26px; padding: 12px 40px; position: relative; }
+.msg.hl { background: rgba(230,207,42,.13); }
+.av { width: 88px; height: 88px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 38px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: baseline; gap: 14px; }
+.who { font-size: 36px; font-weight: 700; }
+.app { font-size: 21px; font-weight: 700; color: #fff; background: #5865F2; border-radius: 6px; padding: 3px 9px; transform: translateY(-4px); }
+.time { font-size: 25px; color: #949BA4; }
+.text { font-size: 36px; line-height: 1.34; color: #DBDEE1; margin-top: 2px; }
+.text.cmd { font-family: 'RedMono'; font-weight: 500; font-size: 34px; }
+.reply { display: flex; align-items: center; gap: 10px; font-size: 26px; color: #B5BAC1; margin: 6px 0 2px 154px; position: relative; white-space: nowrap; }
+.reply::before { content: ''; position: absolute; left: -66px; top: 16px; width: 54px; height: 22px; border-left: 3px solid #4E5058; border-top: 3px solid #4E5058; border-top-left-radius: 10px; }
+.reply .mini { width: 34px; height: 34px; border-radius: 50%; overflow: hidden; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 17px; font-weight: 700; }
+.reply .mini img { width: 100%; height: 100%; }
+.reply b { font-weight: 700; }
+.reply .c { font-family: 'RedMono'; font-weight: 500; font-size: 25px; }
+.reply i { font-style: italic; color: #949BA4; }
+.embed { margin-top: 10px; background: #2B2D31; border-radius: 6px; border-left: 8px solid #5BC98C; padding: 20px 26px; font-size: 34px; line-height: 1.36; }
+.embed.warn { border-left-color: #E5A663; }
+.embed.neutral { border-left-color: #2B2D31; }
+.embed b { font-weight: 700; color: #F2F3F5; }
+.embed .auth { font-size: 29px; font-weight: 700; color: #F2F3F5; margin-bottom: 8px; }
+.embed .foot { font-size: 25px; color: #B5BAC1; margin-top: 14px; }
+.fields { display: flex; gap: 22px; margin-top: 14px; }
+.field { flex: 1; min-width: 0; font-size: 29px; line-height: 1.3; }
+.fname { font-size: 27px; font-weight: 700; color: #F2F3F5; margin-bottom: 2px; }
+.sub { margin-top: 14px; font-size: 30px; line-height: 1.3; }
+.ment { color: #C9CDFB; background: rgba(88,101,242,.3); border-radius: 4px; padding: 0 5px; }
+.id { font-family: 'RedMono'; font-weight: 500; font-size: 23px; background: #1E1F22; padding: 2px 7px; border-radius: 4px; }
+.btns { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 14px; }
+.btn { font-size: 29px; font-weight: 700; color: #fff; padding: 13px 24px; border-radius: 8px; background: #4E5058; position: relative; }
+.btn.red { background: #C93B3F; }
+.btn.green { background: #248046; }
+.btn.off { opacity: .45; }
+.lineh { display: block; margin: 0 -10px; padding: 2px 10px; }
+.lineh.on { background: var(--accent); color: var(--ink); }
+.lineh.on b { color: var(--ink); }
+.input { flex: none; margin: 0 28px 34px; height: 92px; background: #383A40; border-radius: 12px; display: flex; align-items: center; gap: 22px; padding: 0 26px; position: relative; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 700; display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 33px; color: #6D6F78; white-space: nowrap; }
+.typed { font-family: 'RedMono'; font-weight: 500; font-size: 34px; color: #DBDEE1; white-space: nowrap; }
+.caret { display: inline-block; width: 3px; height: 36px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+.mine { background: rgba(230,207,42,.0); }
+.hsent { background: var(--accent); color: var(--ink); padding: 0 6px; }
+
+/* right-click menu */
+.menu { position: absolute; background: #111214; border-radius: 10px; padding: 12px; width: 370px; font-family: 'Atkinson'; font-size: 33px; color: #DBDEE1; z-index: 5; }
+.menu div { padding: 13px 18px; border-radius: 6px; display: flex; justify-content: space-between; }
+.menu div.h { background: #5865F2; color: #fff; }
+
+/* report form */
+.dim { position: absolute; inset: 0; background: rgba(10,11,13,.72); z-index: 6; }
+.modal { position: absolute; left: 90px; width: 900px; top: 620px; background: #313338; border-radius: 12px; padding: 36px 38px 30px; font-family: 'Atkinson'; color: #DBDEE1; z-index: 7; }
+.modal h4 { font-size: 44px; font-weight: 700; color: #F2F3F5; margin-bottom: 26px; }
+.modal label { display: block; font-size: 31px; font-weight: 700; color: #DBDEE1; margin-bottom: 12px; }
+.area { background: #1E1F22; border-radius: 8px; height: 220px; padding: 20px 22px; font-size: 34px; line-height: 1.3; }
+.area .pl { color: #6D6F78; }
+.modal .row { display: flex; justify-content: flex-end; gap: 16px; margin-top: 26px; }
+.modal .sb { font-size: 31px; font-weight: 700; color: #fff; padding: 13px 34px; border-radius: 8px; background: #5865F2; }
+.modal .cn { font-size: 31px; color: #DBDEE1; padding: 13px 20px; }
+
+.eph { margin-top: 6px; font-size: 34px; line-height: 1.32; }
+.only { font-size: 25px; color: #949BA4; margin-top: 6px; }
+
+.note { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Atkinson'; font-size: 34px; }
+.big { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Atkinson'; font-weight: 700; font-size: 54px; }
+
+#cursor { position: absolute; left: 0; top: 0; width: 64px; height: 76px; z-index: 9; display: none; transform-origin: 8px 8px; }
+
+.logo { position: absolute; left: 50%; width: 300px; height: 300px; margin-left: -150px; }
+.kicker { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Barlow'; font-weight: 600; font-size: 64px; }
+.cmdbox { position: absolute; left: 0; right: 0; text-align: center; font-family: 'RedMono'; font-weight: 600; font-size: 62px; }
+.cmdbox span { background: var(--ink); color: var(--paper); padding: 16px 34px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Atkinson'; font-weight: 700; font-size: 74px; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:96px;font-size:150px;line-height:1.08">
+    <span class="line"><span>Four reports.</span></span>
+    <span class="line"><span class="mark">Which one first?</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:480px;height:1274px"></div>
+  <svg class="check" style="top:1754px" viewBox="0 0 1080 166"></svg>
+</section>
+
+<!-- 1 turn -->
+<section class="shot hivis" id="s1">
+  <div class="head" style="top:520px;font-size:310px;line-height:.98">
+    <span class="line"><span>Get a</span></span>
+    <span class="line"><span>second</span></span>
+    <span class="line"><span>opinion.</span></span>
+  </div>
+</section>
+
+<!-- 2 action -->
+<section class="shot light" id="s2">
+  <div class="head" style="top:90px;font-size:190px;line-height:1">
+    <span class="line"><span>One switch.</span></span>
+  </div>
+  <div class="chat" id="chat2" style="top:320px;height:1434px"></div>
+  <svg class="check" style="top:1754px" viewBox="0 0 1080 166"></svg>
+</section>
+
+<!-- 3 report -->
+<section class="shot dark" id="s3">
+  <div class="head" style="top:80px;font-size:150px;line-height:1">
+    <span class="line"><span>Then a <span class="mark">real one.</span></span></span>
+  </div>
+  <div class="chat" id="chat3" style="top:280px;height:1640px"></div>
+  <div class="menu" id="menu" style="left:130px;top:1250px;display:none">
+    <div>Reply</div><div>Copy Text</div><div id="mApps">Apps <span>›</span></div>
+  </div>
+  <div class="menu" id="submenu" style="left:510px;top:1320px;display:none">
+    <div>Translate</div><div id="mRep">Report message</div><div>Purge after this</div>
+  </div>
+  <div class="dim" id="dim" style="display:none"></div>
+  <div class="modal" id="modal" style="display:none">
+    <h4>Report message</h4>
+    <label>What is wrong with this message?</label>
+    <div class="area" id="area"></div>
+    <div class="row"><span class="cn">Cancel</span><span class="sb">Submit</span></div>
+  </div>
+</section>
+
+<!-- 4 triage -->
+<section class="shot light" id="s4">
+  <div class="head" style="top:60px;font-size:132px;line-height:1">
+    <span class="line"><span>Under the report:</span></span>
+  </div>
+  <div class="chat" id="chat4" style="top:230px;height:1570px"></div>
+  <div class="note" id="note4" style="top:1826px">Example. The AI writes this fresh for each report.</div>
+</section>
+
+<!-- 5 decide -->
+<section class="shot dark" id="s5">
+  <div class="head" style="top:110px;font-size:190px;line-height:1">
+    <span class="line"><span>It never acts</span></span>
+    <span class="line"><span class="mark">by itself.</span></span>
+  </div>
+  <div class="chat" id="chat5" style="top:540px;height:1000px"></div>
+  <div class="big" id="big5" style="top:1610px">Staff make every decision.</div>
+  <svg class="check" style="top:1754px" viewBox="0 0 1080 166"></svg>
+</section>
+
+<!-- 6 end card -->
+<section class="shot light" id="s6">
+  <svg class="check" style="top:0" viewBox="0 0 1080 166"></svg>
+  <img class="logo" id="logo6" src="../../assets/kaivor-logo.png" style="top:340px">
+  <div class="kicker" style="top:670px" id="new6">New in Kaivor</div>
+  <div class="head" style="top:760px;font-size:260px;line-height:1.06">
+    <span class="line"><span>AI triage</span></span>
+  </div>
+  <div class="cmdbox" style="top:1110px" id="cmd6"><span>,kaivor triage on</span></div>
+  <div class="url" style="top:1300px" id="url6">kaivor.space</div>
+  <svg class="check" style="top:1754px" viewBox="0 0 1080 166"></svg>
+</section>
+
+<svg id="cursor" viewBox="0 0 64 76"><path d="M6 4 L6 62 L21 49 L32 72 L44 66 L33 44 L54 44 Z" fill="#fff" stroke="#111214" stroke-width="5" stroke-linejoin="round"/></svg>
+
+<script>
+const FPS = 60, B = 5 / 9;
+window.VIDEO = { fps: FPS, shots: [
+  { name: 'hook', seconds: 4 * B }, { name: 'turn', seconds: 3 * B }, { name: 'action', seconds: 6 * B },
+  { name: 'report', seconds: 6 * B }, { name: 'triage', seconds: 8 * B }, { name: 'decide', seconds: 5 * B }, { name: 'end', seconds: 6 * B },
+]};
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const io = (t) => { t = Math.min(1, Math.max(0, t)); return t < .5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+// made-up users
+const U = {
+  teo:  { name: 'teo', color: '#DBDEE1', bg: '#A9783A', i: 'T' },
+  mira: { name: 'mira', color: '#DBDEE1', bg: '#8C5BA8', i: 'M' },
+  noor: { name: 'noor', color: '#DBDEE1', bg: '#B5713A', i: 'N' },
+  ash:  { name: 'ash_07', color: '#DBDEE1', bg: '#4F7F5E', i: 'A' },
+  lumi: { name: 'lumi', color: '#DBDEE1', bg: '#3F7396', i: 'L' },
+  kofi: { name: 'kofi', color: '#E6CF2A', bg: '#2E7F78', i: 'K' },
+  gift: { name: 'gift_drop4821', color: '#DBDEE1', bg: '#77706A', i: 'G' },
+  bot:  { name: 'Kaivor', color: '#F2F3F5', bot: true },
+};
+const m = (u) => `<span class="ment">@${U[u].name}</span>`;
+
+// Word for word from src/commands/configuration/kaivor.ts, with the fallback ✅ from framework/icons.ts.
+const R_ON = '✅ New message reports and tickets get a suggested severity and next step, shown to staff only. <span class="ON">It never acts by itself.</span>';
+// Word for word from src/services/moderation/messageReports.ts with triage on.
+const R_SENT = 'Sent to the moderators. Thank you for the report. This server has an AI suggest how urgent reports are; it gets the message and your reason without names or IDs, and the moderators decide.';
+const SCAM = 'free gift for the first 50 people, log in to claim: gift-drop4821.example/claim';
+const REASON = 'scam link, it wants my login';
+
+const card = (c) => `<div class="embed warn">
+  <div class="auth">Reported message · ${U[c.a].name}</div>
+  <div>${esc(c.text)}</div>
+  <div class="fields">
+    <div class="field"><div class="fname">Author</div>${m(c.a)}<br><span class="id">${c.id}</span></div>
+    <div class="field" style="flex:.7"><div class="fname">Channel</div><span class="ment">#${c.ch}</span></div>
+    <div class="field" style="flex:.8"><div class="fname">Reported by</div>${m(c.by)}</div>
+  </div>
+  <div class="sub"><div class="fname">Reason</div>${esc(c.reason)}</div>
+  ${c.actions ? `<div class="sub"><div class="fname">Actions</div>🗑 Message deleted · ${m('kofi')} now</div>` : ''}
+  <div class="foot">Open · Today at ${c.time}</div>
+</div>
+<div class="btns">
+  <span class="btn">Jump to message ↗</span>
+  <span class="btn red${c.actions ? ' off' : ''}" id="${c.delId || ''}">Delete message</span>
+  <span class="btn">Time out author (1h)</span>
+  <span class="btn green">Mark handled</span>
+</div>`;
+
+const triageEmbed = (hl) => `<div class="embed neutral">
+  <div class="auth">Suggested triage</div>
+  <span class="lineh${hl ? ' on' : ''}"><b>Severity: high</b></span>
+  Suggested next step: delete the message and warn members not to log in.<br>
+  Why: it sends people to an outside site for their login, which looks like phishing.
+  <div class="foot">Written by AI. A suggestion only; check before acting.</div>
+</div>`;
+
+function contentHTML(x) {
+  if (x.card) return card(x.card);
+  if (x.html) return x.html;
+  if (x.on !== undefined) return `<div class="embed">${R_ON.replace('class="ON"', x.on ? 'class="hsent"' : '')}</div>`;
+  return `<div class="text${x.cmd ? ' cmd' : ''}">${esc(x.text)}</div>`;
+}
+
+function msgHTML(x) {
+  const u = U[x.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.bot ? '<span class="app">APP</span>' : '';
+  const rep = x.rep ? `<div class="reply" style="margin-left:${154 + 40}px"><span class="mini" style="background:${U[x.rep].bg || 'none'}">${U[x.rep].bot ? '<img src="../../assets/icon-512.png">' : U[x.rep].i}</span><b style="color:${U[x.rep].color}">${U[x.rep].name}</b> ${x.repText}</div>` : '';
+  return `<div style="padding-top:${x.gap ?? 4}px">${rep}<div class="msg${x.hl ? ' hl' : ''}" ${x.rep ? 'style="padding-top:2px"' : ''}>${av}<div class="body"><div class="meta"><span class="who" style="color:${u.color}">${u.name}</span>${app}<span class="time">Today at ${x.time}</span></div>${contentHTML(x)}</div></div></div>`;
+}
+
+function renderChat(el, t, msgs, channel, topic, input) {
+  const shown = msgs.filter((x) => t >= x.at);
+  const newest = shown[shown.length - 1];
+  el.innerHTML = `<div class="top"><span class="hash">#</span><span class="name">${channel}</span><span class="topic">${topic}</span></div>
+    <div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>
+    ${input === null ? '' : `<div class="input"><span class="plus">+</span>${input && input.text !== undefined
+      ? `<span class="typed">${esc(input.text)}${input.caret ? '<span class="caret"></span>' : ''}</span>`
+      : `<span class="ph">Message #${channel}</span>`}</div>`}`;
+  if (newest && t < newest.at + 0.26) {
+    const stack = el.querySelector('.stack'), last = stack.lastElementChild, e = out4(p(t, newest.at, 0.22));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+  }
+}
+
+function lines(sec, t, starts) {
+  sec.querySelectorAll('.line > span').forEach((s, i) => {
+    const e = out4(p(t, starts[Math.min(i, starts.length - 1)], 0.3));
+    s.style.transform = `translateY(${(1 - e) * 112}%)`;
+  });
+}
+
+const cur = document.getElementById('cursor');
+function cursor(t, path) {       // path: [[t, x, y], ...], press: small dip around each listed time
+  if (!path) { cur.style.display = 'none'; return; }
+  let x = path.pts[0][1], y = path.pts[0][2];
+  for (let i = 1; i < path.pts.length; i++) {
+    const [a, ax, ay] = path.pts[i - 1], [b, bx, by] = path.pts[i];
+    if (t >= a) { const e = io(p(t, a, b - a)); x = ax + (bx - ax) * e; y = ay + (by - ay) * e; }
+  }
+  const s = path.press.some((c) => t >= c - 0.03 && t < c + 0.09) ? 0.88 : 1;
+  cur.style.display = 'block';
+  cur.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
+}
+
+document.querySelectorAll('.check').forEach((svg) => {
+  const S = 1080 / 13; let h = '';
+  for (let r = 0; r < 2; r++) for (let c = 0; c < 13; c++) h += `<rect x="${c * S}" y="${r * S}" width="${S + 0.5}" height="${S + 0.5}" fill="${(r + c) % 2 ? '#1A1C1F' : '#E6CF2A'}"/>`;
+  svg.innerHTML = h;
+});
+
+// ---- shots ----
+const hookMsgs = [
+  { u: 'bot', at: -1, time: '02:09', card: { a: 'teo', id: '318840219675', ch: 'food', by: 'mira', reason: 'this is just wrong', time: '02:09', text: 'pineapple belongs on pizza' } },
+  { u: 'bot', at: -1, time: '02:11', card: { a: 'ash', id: '402917755120', ch: 'memes', by: 'noor', reason: 'bad meme', time: '02:11', text: 'that was the worst meme i have seen today' } },
+  { u: 'bot', at: B, time: '02:12', card: { a: 'lumi', id: '556201348876', ch: 'general', by: 'teo', reason: 'annoying', time: '02:12', text: 'who keeps pinging me' } },
+  { u: 'bot', at: 2 * B, time: '02:14', card: { a: 'noor', id: '287365019942', ch: 'music', by: 'ash', reason: 'ruined my favourite song', time: '02:14', text: 'that chorus is two notes on repeat' } },
+];
+
+const actionMsgs = [
+  { u: 'lumi', text: 'morning', at: -1, time: '07:58' },
+  { u: 'kofi', text: 'morning. checking the report channel', at: -1, time: '07:59' },
+  { u: 'ash', text: 'how bad is it', at: -1, time: '08:00' },
+  { u: 'noor', text: 'four reports before breakfast', at: -1, time: '08:02' },
+  { u: 'teo', text: 'any of them serious?', at: -1, time: '08:03' },
+  { u: 'kofi', text: 'no idea yet', at: -1, time: '08:03' },
+  { u: 'kofi', text: ',kaivor triage on', cmd: true, at: 2 * B, time: '08:04' },
+  { u: 'bot', on: false, rep: 'kofi', repText: '<span class="c">,kaivor triage on</span>', at: 3 * B, time: '08:04' },
+];
+
+const generalBase = [
+  { u: 'kofi', text: 'quiet day so far', at: -1, time: '11:21' },
+  { u: 'noor', text: 'please don\u2019t say that', at: -1, time: '11:22' },
+  { u: 'teo', text: 'too late', at: -1, time: '11:30' },
+  { u: 'ash', text: 'did anyone save the playlist', at: -1, time: '11:36' },
+  { u: 'mira', text: 'pinned it', at: -1, time: '11:37' },
+  { u: 'ash', text: 'legend', at: -1, time: '11:37' },
+  { u: 'lumi', text: 'rematch tonight?', at: -1, time: '11:40' },
+  { u: 'noor', text: 'nine works', at: -1, time: '11:41' },
+  { u: 'gift', text: SCAM, at: -1, time: '11:43', hl: false },
+  { u: 'teo', text: 'wait is this real', at: -1, time: '11:44' },
+];
+
+const triageCard = (actions, delId) => ({ a: 'gift', id: '640112983375', ch: 'general', by: 'mira', reason: REASON, time: '11:45', text: SCAM, actions, delId });
+
+const S = [...document.querySelectorAll('.shot')];
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  cursor(t, null);
+  if (shot === 0) {
+    lines(sec, t, [-0.3, 0.18]);
+    renderChat(document.getElementById('chat0'), t, hookMsgs, 'reports', 'for staff', null);
+  } else if (shot === 1) {
+    lines(sec, t, [0, B * .5, B]);
+  } else if (shot === 2) {
+    lines(sec, t, [-0.3]);
+    const cmd = ',kaivor triage on';
+    const input = t < 2 * B ? { text: cmd.slice(0, Math.round(cmd.length * p(t, 0.12, 0.85))), caret: true } : undefined;
+    const msgs = actionMsgs.map((x) => (x.on === undefined ? x : { ...x, on: t >= 4.5 * B }));
+    renderChat(document.getElementById('chat2'), t, msgs, 'staff-room', 'for staff', input);
+  } else if (shot === 3) {
+    lines(sec, t, [-0.3]);
+    const chat = document.getElementById('chat3');
+    const done = t >= 4 * B + 0.1;
+    const msgs = generalBase.map((x) => (x.u === 'gift' ? { ...x, hl: t >= 0.36 && t < 2 * B } : x));
+    if (done) msgs.push({ u: 'bot', at: 4 * B + 0.1, time: '11:45', html: `<div class="eph">${R_SENT}</div><div class="only">Only you can see this</div>` });
+    renderChat(chat, t, msgs, 'general', 'say hi', undefined);
+    const menu = document.getElementById('menu'), sub = document.getElementById('submenu');
+    menu.style.display = t >= 0.42 && t < 2 * B ? 'block' : 'none';
+    sub.style.display = t >= 0.78 && t < 2 * B ? 'block' : 'none';
+    document.getElementById('mApps').className = t >= 0.7 ? 'h' : '';
+    document.getElementById('mRep').className = t >= 0.92 ? 'h' : '';
+    const form = t >= 2 * B && t < 4 * B + 0.1;
+    document.getElementById('dim').style.display = form ? 'block' : 'none';
+    const mo = document.getElementById('modal');
+    mo.style.display = form ? 'block' : 'none';
+    if (form) {
+      const n = Math.round(REASON.length * p(t, 2 * B + 0.16, 0.85));
+      document.getElementById('area').innerHTML = n === 0
+        ? '<span class="pl">Optional. For example: harassment, spam, a scam link.</span>'
+        : esc(REASON.slice(0, n)) + '<span class="caret"></span>';
+      mo.style.transform = `translateY(${(1 - out4(p(t, 2 * B, 0.2))) * 40}px)`;
+    }
+    cursor(t, t < 4 * B + 0.1 ? { pts: [[-1, 860, 1720], [0.04, 860, 1720], [0.38, 300, 1530], [0.5, 300, 1530], [0.7, 300, 1460], [0.8, 300, 1460], [0.98, 680, 1432], [1.06, 680, 1432], [1.4, 870, 1200], [1.9, 870, 1200], [2.14, 850, 1035]], press: [0.42, 1.08, 4 * B] } : null);
+  } else if (shot === 4) {
+    lines(sec, t, [-0.3]);
+    const msgs = [
+      { u: 'bot', at: -1, time: '11:45', card: triageCard(false) },
+      { u: 'bot', at: 2 * B, time: '11:45', rep: 'bot', repText: '<i>Click to see attachment</i>', html: triageEmbed(t >= 4 * B) },
+    ];
+    renderChat(document.getElementById('chat4'), t, msgs, 'reports', 'for staff', null);
+    const q = out4(p(t, 3 * B, 0.3));
+    document.getElementById('note4').style.opacity = String(q);
+  } else if (shot === 5) {
+    lines(sec, t, [-0.3, 0.1]);
+    const chat = document.getElementById('chat5');
+    const clicked = t >= 2 * B;
+    renderChat(chat, t, [{ u: 'bot', at: -1, time: '11:45', card: triageCard(clicked, 'del5') }], 'reports', 'for staff', null);
+    const big = document.getElementById('big5'), q = out4(p(t, 3 * B, 0.3));
+    big.style.opacity = String(q); big.style.transform = `translateY(${(1 - q) * 24}px)`;
+    const d = document.getElementById('del5').getBoundingClientRect();
+    const x = d.left + d.width / 2 - 8, y = d.top + d.height / 2 - 8;
+    cursor(t, { pts: [[-1, 900, 1700], [0.1, 900, 1700], [0.95, x, y]], press: [2 * B] });
+  } else if (shot === 6) {
+    const e = out4(p(t, 0, 0.35));
+    const logo = document.getElementById('logo6');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 36}px)`;
+    lines(sec, t, [0.1]);
+    for (const [id, a] of [['new6', 0], ['cmd6', B], ['url6', 2 * B]]) {
+      const el = document.getElementById(id), q = out4(p(t, a, 0.3));
+      el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 22}px)`;
+    }
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
