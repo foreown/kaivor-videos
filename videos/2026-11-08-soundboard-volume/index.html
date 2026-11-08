@@ -1,0 +1,398 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: Soundboard management, `soundboard volume` (aurora-bot commit 1a9ea8a).
+  Look: "mixing desk" — oxblood-black #24151A and powder grey #DDE3E6 alternating by shot, one accent (vermilion #E0452B),
+  a segmented level meter and a single fader as the recurring motif. Unbounded for headlines, Instrument Sans for the
+  chat UI, Azeret Mono only for commands and meter readouts.
+  Facts checked in src/commands/configuration/soundboard.ts, src/services/soundboard/index.ts,
+  src/events/listeners/soundboardSound{Create,Update,Delete}Log.ts, src/services/logging/embeds.ts,
+  src/services/logging/index.ts, src/framework/embeds.ts, src/framework/icons.ts, src/framework/slash.ts, src/config/index.ts:
+    - usage: soundboard volume <sound> <1-100>; example "soundboard volume airhorn 40"; sound found by name, any case
+    - reply: ctx.success(`**${sound.name}** now plays at ${value}%.`)  -> success embed 0x5bc98c, icon fallback ✅
+    - soundboard (list): embed titled "Soundboard", sorted by name, lines "**name** · volume N% · added by <@user>",
+      colour COLORS.default (#658a95 unless the server sets its own)
+    - update log: embed "Soundboard sound updated", tone update (0xe5a663), description **name**,
+      inline field "Volume" "100% → 40%", footer "Sound ID: <id>", timestamp; sent by the "Kaivor" log webhook
+    - add / rename / volume / remove; added, changed and removed sounds go to the expressions log (EMOJIS group)
+    - needs Manage Expressions; slash home: /server soundboard
+  Sound: own sound (music/ is empty), 92 BPM; every shot is a whole number of beats (see sound.py).
+-->
+<style>
+@font-face { font-family: 'Unb'; font-weight: 800; src: url('../../node_modules/@fontsource/unbounded/files/unbounded-latin-800-normal.woff2'); }
+@font-face { font-family: 'Unb'; font-weight: 600; src: url('../../node_modules/@fontsource/unbounded/files/unbounded-latin-600-normal.woff2'); }
+@font-face { font-family: 'Ins'; font-weight: 400; src: url('../../node_modules/@fontsource/instrument-sans/files/instrument-sans-latin-400-normal.woff2'); }
+@font-face { font-family: 'Ins'; font-weight: 500; src: url('../../node_modules/@fontsource/instrument-sans/files/instrument-sans-latin-500-normal.woff2'); }
+@font-face { font-family: 'Ins'; font-weight: 600; src: url('../../node_modules/@fontsource/instrument-sans/files/instrument-sans-latin-600-normal.woff2'); }
+@font-face { font-family: 'Ins'; font-weight: 700; src: url('../../node_modules/@fontsource/instrument-sans/files/instrument-sans-latin-700-normal.woff2'); }
+@font-face { font-family: 'Az'; font-weight: 400; src: url('../../node_modules/@fontsource/azeret-mono/files/azeret-mono-latin-400-normal.woff2'); }
+@font-face { font-family: 'Az'; font-weight: 600; src: url('../../node_modules/@fontsource/azeret-mono/files/azeret-mono-latin-600-normal.woff2'); }
+
+:root { --ox: #24151A; --powder: #DDE3E6; --ink: #1F1A1C; --accent: #E0452B; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--ox); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--ox); color: var(--powder); }
+.light { background: var(--powder); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Unb'; font-weight: 800; letter-spacing: -0.035em; }
+.line { display: block; overflow: hidden; padding-bottom: 0.08em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Unb'; font-weight: 600; font-size: 30px; letter-spacing: 0.16em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; }
+.sub { position: absolute; left: 150px; right: 150px; text-align: center; font-family: 'Ins'; font-weight: 500; font-size: 42px; line-height: 1.3; }
+
+/* generic Discord-style chat (no Discord logo or wordmark) */
+.chat { position: absolute; left: 70px; width: 940px; background: #313338; border-radius: 10px; overflow: hidden;
+        font-family: 'Ins'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 94px; flex: none; display: flex; align-items: center; gap: 18px; padding: 0 34px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 50px; color: #80848E; font-weight: 500; }
+.chat .top .name { font-size: 37px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 29px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 18px; }
+.msg { display: flex; gap: 26px; padding: 14px 34px; }
+.av { width: 84px; height: 84px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 36px; color: #fff; overflow: hidden; font-family: 'Ins'; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: baseline; gap: 14px; }
+.who { font-size: 34px; font-weight: 600; color: #F2F3F5; }
+.app { font-size: 20px; font-weight: 700; color: #fff; background: #5865F2; border-radius: 6px; padding: 3px 9px; transform: translateY(-4px); }
+.time { font-size: 24px; color: #949BA4; }
+.text { font-size: 35px; line-height: 1.36; color: #DBDEE1; margin-top: 4px; }
+.text.cmd { font-family: 'Az'; font-size: 28px; }
+.mention { color: #C9CDFB; background: rgba(88,101,242,.3); border-radius: 5px; padding: 0 5px; font-weight: 500; }
+.embed { margin-top: 10px; background: #2B2D31; border-radius: 6px; border-left: 8px solid #5BC98C; padding: 22px 30px; font-size: 32px; line-height: 1.5; max-width: 820px; }
+.embed .et { font-weight: 700; color: #F2F3F5; font-size: 33px; margin-bottom: 8px; }
+.embed .fl { margin-top: 14px; }
+.embed .fn { font-weight: 700; color: #F2F3F5; font-size: 28px; }
+.embed .fv { font-size: 31px; }
+.embed .ft { margin-top: 16px; font-size: 24px; color: #B5BAC1; }
+.embed b { color: #F2F3F5; font-weight: 700; }
+.input { flex: none; margin: 0 26px 26px; height: 92px; background: #383A40; border-radius: 12px; display: flex; align-items: center; gap: 22px; padding: 0 26px; position: relative; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 32px; color: #6D6F78; white-space: nowrap; overflow: hidden; }
+.typed { font-family: 'Az'; font-size: 28px; color: #DBDEE1; white-space: nowrap; overflow: hidden; }
+.caret { display: inline-block; width: 3px; height: 34px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+.typing { position: absolute; left: 30px; bottom: -2px; font-size: 22px; color: #B5BAC1; }
+.cursor { position: absolute; width: 54px; height: 54px; z-index: 5; pointer-events: none; }
+
+/* voice channel */
+.voice { position: absolute; left: 70px; width: 940px; background: #1E1F22; border-radius: 10px; font-family: 'Ins'; padding: 0 0 26px; }
+.voice .top { height: 92px; display: flex; align-items: center; gap: 18px; padding: 0 34px; color: #F2F3F5; font-size: 36px; font-weight: 700; }
+.voice .top svg { width: 40px; height: 40px; }
+.voice .top .n { font-weight: 500; color: #949BA4; font-size: 28px; margin-left: auto; }
+.tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; padding: 0 26px; }
+.tile { height: 268px; background: #2B2D31; border-radius: 10px; position: relative; display: flex; align-items: center; justify-content: center; }
+.tile .av { width: 132px; height: 132px; font-size: 56px; }
+.tile .nm { position: absolute; left: 18px; bottom: 14px; font-size: 26px; font-weight: 600; color: #F2F3F5; background: rgba(0,0,0,.35); border-radius: 6px; padding: 2px 10px; }
+.tile.speak { box-shadow: inset 0 0 0 5px #5BC98C; }
+.badge { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); background: #F2F3F5; color: #1E1F22; border-radius: 30px;
+         font-size: 26px; font-weight: 700; padding: 8px 20px 8px 14px; display: flex; gap: 10px; align-items: center; white-space: nowrap; }
+.badge svg { width: 30px; height: 30px; }
+
+/* level meter */
+.meter { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; }
+.meter .row { width: 858px; display: flex; justify-content: space-between; font-family: 'Az'; font-size: 30px; margin-bottom: 14px; }
+.meter .segs { display: flex; gap: 6px; }
+.meter .seg { width: 30px; height: 86px; }
+
+/* fader */
+.fader { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; }
+.fader .read { font-family: 'Unb'; font-weight: 800; font-size: 96px; letter-spacing: -0.04em; line-height: 1; }
+.fader .lab { font-family: 'Az'; font-size: 26px; letter-spacing: .06em; opacity: .7; margin-top: 14px; }
+.fader .track { position: relative; width: 840px; height: 120px; margin-top: 22px; }
+.fader .rail { position: absolute; left: 0; right: 0; top: 56px; height: 8px; background: currentColor; opacity: .35; }
+.fader .fill { position: absolute; left: 0; top: 56px; height: 8px; background: var(--accent); }
+.fader .tick { position: absolute; top: 84px; width: 80px; margin-left: -40px; text-align: center; font-family: 'Az'; font-size: 22px; opacity: .6; }
+.fader .tick::before { content: ''; position: absolute; left: 39px; top: -22px; width: 2px; height: 14px; background: currentColor; }
+.fader .cap { position: absolute; top: 14px; width: 40px; height: 92px; margin-left: -20px; background: var(--accent); }
+.fader .cap::after { content: ''; position: absolute; left: 6px; right: 6px; top: 44px; height: 4px; background: var(--ox); }
+
+.logo { position: absolute; left: 50%; width: 260px; height: 260px; margin-left: -130px; }
+.pill { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Az'; font-weight: 600; font-size: 32px; }
+.pill span { background: var(--ink); color: var(--powder); padding: 16px 28px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Unb'; font-weight: 800; font-size: 56px; letter-spacing: -0.03em; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:130px;font-size:80px;line-height:1.04">
+    <span class="line"><span>Someone found</span></span>
+    <span class="line"><span>the <span style="color:var(--accent)">airhorn.</span></span></span>
+  </div>
+  <div class="voice" id="voice0" style="top:390px"></div>
+  <div class="meter" id="meter0" style="top:1110px"></div>
+  <div class="chat" id="chat0" style="top:1290px;height:520px"></div>
+</section>
+
+<!-- 1 turn -->
+<section class="shot light" id="s1">
+  <div class="head" style="top:690px;font-size:116px;line-height:1.02">
+    <span class="line"><span>Turn it down.</span></span>
+    <span class="line"><span style="color:var(--accent)">Not off.</span></span>
+  </div>
+</section>
+
+<!-- 2 action -->
+<section class="shot dark" id="s2">
+  <div class="kicker" style="top:230px;color:var(--accent)">One command</div>
+  <div class="chat" id="chat2" style="top:300px;height:1060px"></div>
+  <div class="fader" id="fader2" style="top:1430px"></div>
+  <svg class="cursor" id="cur2" viewBox="0 0 24 24"><path d="M4 2 L4 19 L8.6 14.8 L11.6 21.4 L14.4 20.2 L11.5 13.7 L17.6 13.5 Z" fill="#DDE3E6" stroke="#24151A" stroke-width="1.4" stroke-linejoin="round"/></svg>
+</section>
+
+<!-- 3 result -->
+<section class="shot light" id="s3">
+  <div class="head" style="top:150px;font-size:96px;line-height:1.02">
+    <span class="line"><span>Same horn.</span></span>
+    <span class="line"><span style="color:var(--accent)">Quieter.</span></span>
+  </div>
+  <div class="chat" id="chat3" style="top:420px;height:960px"></div>
+  <div class="meter" id="meter3" style="top:1470px"></div>
+</section>
+
+<!-- 4 key fact -->
+<section class="shot dark" id="s4">
+  <div class="head" style="top:480px;font-size:92px;line-height:1.04">
+    <span class="line"><span>Every change</span></span>
+    <span class="line"><span style="color:var(--accent)">is logged.</span></span>
+  </div>
+  <div class="chat" id="chat4" style="top:790px;height:540px"></div>
+  <div class="sub" id="sub4" style="top:1410px;color:#C9C2C4">Added, changed and removed sounds all land in your logs.</div>
+</section>
+
+<!-- 5 end card -->
+<section class="shot light" id="s5">
+  <img class="logo" id="logo5" src="../../assets/kaivor-logo.png" style="top:330px">
+  <div class="kicker" style="top:690px;color:var(--accent)">New in Kaivor</div>
+  <div class="head" style="top:760px;font-size:100px;line-height:1.02">
+    <span class="line"><span>Soundboard</span></span>
+    <span class="line"><span>controls</span></span>
+  </div>
+  <div class="meter" id="meter5" style="top:1030px"></div>
+  <div class="pill" style="top:1190px" id="pill5"><span>,soundboard volume airhorn 40</span></div>
+  <div class="sub" style="top:1300px;font-size:38px" id="sub5">Add, rename, set the volume of, or remove any sound.</div>
+  <div class="url" style="top:1470px" id="url5">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BPM = 92;
+const BEAT = 60 / BPM;
+const beats = [5, 2, 8, 6, 4, 6];
+const names = ['hook', 'turn', 'action', 'result', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: BPM, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inOut = (t) => { t = Math.min(1, Math.max(0, t)); return t < .5 ? 8 * t ** 4 : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+// deterministic jitter for the meter
+const jit = (t, s) => { const x = Math.sin(t * 91.7 + s * 12.9898) * 43758.5453; return x - Math.floor(x); };
+
+// made-up users; teo is the mod
+const U = {
+  teo:  { name: 'teo', bg: '#6E7F8A', i: 'T' },
+  mira: { name: 'mira', bg: '#8C5B7E', i: 'M' },
+  noor: { name: 'noor', bg: '#A8743F', i: 'N' },
+  gift: { name: 'gift_drop4821', bg: '#4F6B5A', i: 'G' },
+  bot:  { name: 'Kaivor', bot: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const md = (s) => esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\{@(\w+)\}/g, (_, k) => `<span class="mention">@${U[k].name}</span>`);
+
+const SPEAKER = '<svg viewBox="0 0 24 24"><path d="M3 9h4l5-4v14l-5-4H3z" fill="#80848E"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" stroke="#80848E" stroke-width="2" fill="none" stroke-linecap="round"/></svg>';
+const HORN = '<svg viewBox="0 0 24 24"><path d="M3 10v4h3l9 5V5L6 10z" fill="#1E1F22"/><path d="M18 9.5c1 .7 1 4.3 0 5" stroke="#1E1F22" stroke-width="2" fill="none" stroke-linecap="round"/></svg>';
+
+function msgHTML(m, i, arr) {
+  const u = U[m.u];
+  const grouped = i > 0 && arr[i - 1].u === m.u && !m.embed && !arr[i - 1].embed;
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.bot ? '<span class="app">APP</span>' : '';
+  let content;
+  if (m.embed) {
+    const e = m.embed;
+    content = `<div class="embed" style="border-left-color:${e.color}">${e.title ? `<div class="et">${esc(e.title)}</div>` : ''}${e.desc ? `<div>${e.desc}</div>` : ''}${
+      (e.fields || []).map((f) => `<div class="fl"><div class="fn">${esc(f[0])}</div><div class="fv">${esc(f[1])}</div></div>`).join('')}${
+      e.footer ? `<div class="ft">${esc(e.footer)}</div>` : ''}</div>`;
+  } else content = `<div class="text${m.cmd ? ' cmd' : ''}">${md(m.text)}</div>`;
+  if (grouped) return `<div class="msg" style="padding-top:2px"><div class="av" style="height:0"></div><div class="body">${content}</div></div>`;
+  return `<div class="msg">${av}<div class="body"><div class="meta"><span class="who">${u.name}</span>${app}<span class="time">Today at ${m.time || '21:14'}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, input, channel = 'general', topic = 'game night, all welcome') {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  el.innerHTML = `
+    <div class="top"><span class="hash">#</span><span class="name">${channel}</span>${topic ? `<span class="topic">${topic}</span>` : ''}</div>
+    <div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>
+    ${input === null ? '' : `<div class="input"><span class="plus">+</span>${input && input.text !== undefined
+      ? `<span class="typed">${esc(input.text)}${input.caret ? '<span class="caret"></span>' : ''}</span>`
+      : `<span class="ph">Message #${channel}</span>`}
+      ${input && input.typing ? '<span class="typing"><b>Kaivor</b> is typing…</span>' : ''}</div>`}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, 0.22));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function lines(sec, t, start, gap) {
+  sec.querySelectorAll('.head .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.45));
+    s.style.transform = `translateY(${(1 - e) * 110}%)`;
+  });
+}
+
+// level meter: 24 segments; level 0..1; colours depend on the background
+function renderMeter(el, level, label, readout, theme) {
+  const N = 24, lit = Math.round(level * N);
+  const off = theme === 'dark' ? '#3B2830' : '#C3CBD0';
+  const on = theme === 'dark' ? '#DDE3E6' : '#1F1A1C';
+  const segs = Array.from({ length: N }, (_, i) => {
+    const c = i < lit ? (i >= 19 ? 'var(--accent)' : on) : off;
+    return `<div class="seg" style="background:${c}"></div>`;
+  }).join('');
+  el.innerHTML = `${label !== null ? `<div class="row"><span>${label}</span><span>${readout}</span></div>` : ''}<div class="segs">${segs}</div>`;
+}
+
+function renderFader(el, value) {
+  const x = (value / 100) * 840;
+  el.innerHTML = `<div class="read">${Math.round(value)}%</div><div class="lab">AIRHORN · VOLUME</div>
+    <div class="track"><div class="rail"></div><div class="fill" style="width:${x}px"></div>
+    ${[0, 25, 50, 75, 100].map((v) => `<div class="tick" style="left:${v * 8.4}px">${v}</div>`).join('')}
+    <div class="cap" style="left:${x}px"></div></div>`;
+}
+
+// ---- scripts ----
+const CMD_VOL = ',soundboard volume airhorn 40';
+const CMD_LIST = ',soundboard';
+// Word for word from src/commands/configuration/soundboard.ts
+const R_VOL = { color: '#5BC98C', desc: '✅ ' + md('**airhorn** now plays at 40%.') };
+const LIST = {
+  color: '#658A95', title: 'Soundboard',
+  desc: [
+    md('**airhorn** · volume 40% · added by {@gift}'),
+    md('**bell** · volume 100% · added by {@mira}'),
+    md('**rimshot** · volume 100% · added by {@teo}'),
+    md('**sad trombone** · volume 100% · added by {@noor}'),
+  ].join('<br>'),
+};
+// src/events/listeners/soundboardSoundUpdateLog.ts via logEmbed (tone update = COLORS.warn)
+const LOG = { color: '#E5A663', title: 'Soundboard sound updated', desc: md('**airhorn**'), fields: [['Volume', '100% → 40%']], footer: 'Sound ID: 1304817762453913641 • Today at 21:14' };
+
+const hookMsgs = [
+  { u: 'gift', text: 'joining vc', at: -1, time: '21:11' },
+  { u: 'mira', text: 'grabbing snacks, 1 min', at: -1, time: '21:11' },
+  { u: 'noor', text: 'ok round two, everyone in?', at: -1, time: '21:12' },
+  { u: 'mira', text: 'MY EARS', at: B(2) },
+  { u: 'teo', text: 'who keeps pressing that', at: B(3.75) },
+];
+const actionMsgs = [
+  { u: 'gift', text: 'joining vc', at: -1, time: '21:11' },
+  { u: 'mira', text: 'grabbing snacks, 1 min', at: -1, time: '21:11' },
+  { u: 'noor', text: 'ok round two, everyone in?', at: -1, time: '21:12' },
+  { u: 'mira', text: 'MY EARS', at: -1, time: '21:13' },
+  { u: 'teo', text: 'who keeps pressing that', at: -1, time: '21:13' },
+  { u: 'gift', text: 'sorry it’s too good', at: -1, time: '21:13' },
+  { u: 'teo', text: CMD_VOL, at: B(4), cmd: true },
+  { u: 'bot', embed: R_VOL, at: B(5) },
+];
+const listMsgs = [
+  { u: 'bot', embed: R_VOL, at: -1 },
+  { u: 'teo', text: CMD_LIST, at: B(1.5), cmd: true, time: '21:15' },
+  { u: 'bot', embed: LIST, at: B(2), time: '21:15' },
+];
+const logMsgs = [
+  { u: 'bot', embed: LOG, at: 0.3 },
+];
+
+function renderVoice(el, t, speaking) {
+  const tiles = ['teo', 'mira', 'noor', 'gift'].map((k) => {
+    const u = U[k], sp = speaking && k === 'gift';
+    const b = sp ? out4(p(t, speaking.at, 0.18)) : 0;
+    return `<div class="tile${sp ? ' speak' : ''}"><div class="av" style="background:${u.bg}">${u.i}</div><span class="nm">${u.name}</span>${
+      sp ? `<div class="badge" style="opacity:${b};transform:translateX(-50%) translateY(${(1 - b) * 20}px)">${HORN}airhorn</div>` : ''}</div>`;
+  }).join('');
+  el.innerHTML = `<div class="top">${SPEAKER}<span>game-night</span><span class="n">4 in voice</span></div><div class="tiles">${tiles}</div>`;
+}
+
+// airhorn blasts (also in sound.py): hook at B(0.5) for B(1.5) and B(3) for B(1.25); result at B(3.5) for B(1.5)
+function blastLevel(t, blasts, peak) {
+  for (const [a, d] of blasts) {
+    if (t >= a && t < a + d) {
+      const att = out4(p(t, a, 0.05));
+      const rel = 1 - p(t, a + d - 0.12, 0.12);
+      return Math.min(1, peak * att * rel * (0.94 + 0.06 * jit(t, 3)));
+    }
+  }
+  return 0.03 + 0.04 * jit(Math.floor(t * 12), 1);
+}
+
+const S = [...document.querySelectorAll('.shot')];
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, t, 0.0, 0.1);
+    const blasts = [[B(0.5), B(1.5)], [B(3), B(1.25)]];
+    const active = blasts.find(([a, d]) => t >= a && t < a + d + 0.15);
+    renderVoice(document.getElementById('voice0'), t, active ? { at: active[0] } : null);
+    const lv = blastLevel(t, blasts, 1);
+    renderMeter(document.getElementById('meter0'), lv, 'airhorn', 'volume 100%', 'dark');
+    renderChat(document.getElementById('chat0'), t, hookMsgs, null);
+  } else if (shot === 1) {
+    lines(sec, t, 0.0, 0.1);
+  } else if (shot === 2) {
+    const cur = document.getElementById('cur2');
+    const k = inOut(p(t, 0.05, 0.55));
+    const x = 760 + (300 - 760) * k, y = 960 + (1300 - 960) * k;
+    const press = t > B(1) - 0.06 && t < B(1) + 0.06 ? 0.86 : 1;
+    cur.style.left = x + 'px'; cur.style.top = y + 'px'; cur.style.transform = `scale(${press})`;
+    cur.style.display = t < B(1) + 0.12 ? 'block' : 'none';
+    const n = Math.round(CMD_VOL.length * p(t, B(1) + 0.1, B(2.5)));
+    let input;
+    if (t >= B(1) && t < B(4)) input = { text: CMD_VOL.slice(0, n), caret: Math.floor(t * 4) % 2 === 0 || n < CMD_VOL.length };
+    else if (t >= B(4) && t < B(5)) input = { typing: true };
+    renderChat(document.getElementById('chat2'), t, actionMsgs, input);
+    renderFader(document.getElementById('fader2'), 100 - 60 * out4(p(t, B(5) + 0.15, 0.6)));
+    sec.querySelector('.kicker').style.opacity = String(out4(p(t, 0, 0.3)));
+  } else if (shot === 3) {
+    lines(sec, t, 0.0, 0.1);
+    const n = Math.round(CMD_LIST.length * p(t, 0.15, B(1)));
+    let input;
+    if (t < B(1.5)) input = { text: CMD_LIST.slice(0, n), caret: true };
+    else if (t < B(2)) input = { typing: true };
+    renderChat(document.getElementById('chat3'), t, listMsgs, input);
+    const lv = blastLevel(t, [[B(3.5), B(1.5)]], 0.4);
+    renderMeter(document.getElementById('meter3'), lv, 'airhorn', 'volume 40%', 'light');
+  } else if (shot === 4) {
+    lines(sec, t, 0.0, 0.1);
+    renderChat(document.getElementById('chat4'), t, logMsgs, null, 'server-logs', '');
+    const q = out4(p(t, 0.6, 0.4)), el = document.getElementById('sub4');
+    el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+  } else if (shot === 5) {
+    const e = out4(p(t, 0, 0.5));
+    const logo = document.getElementById('logo5');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, t, 0.12, 0.1);
+    renderMeter(document.getElementById('meter5'), 0.4 * out4(p(t, 0.45, 0.5)), null, '', 'light');
+    for (const [id, a] of [['pill5', 0.65], ['sub5', 0.8], ['url5', 1.0]]) {
+      const el = document.getElementById(id), q = out4(p(t, a, 0.4));
+      el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+    }
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
