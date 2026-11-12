@@ -7,6 +7,7 @@ Daily promo videos for Kaivor (TikTok + YouTube Shorts), posted through Metricoo
 ## Layout
 
 - `VIDEO_RULES.md`: the production rules (hard rules, look, structure, captions, checked facts)
+- `ANALYTICS.md`: what the best-performing videos had in common, one dated entry per video (VIDEO_RULES.md section 9)
 - `LOG.md`: every video made so far, with its feature, look and fonts. Check it so you don't repeat a feature or a look, and add a line for each new video
 - `videos/<date>-<feature>/index.html`: one page per video, where `render(shot, frame)` sets the exact state of that frame
 - `tools/capture.mjs`: captures a page with Playwright at 1080×1920, 60 fps, into one file per shot, then joins them with `-c copy`

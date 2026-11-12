@@ -23,6 +23,7 @@ You make short promo videos for **Kaivor**, my Discord bot (kaivor.space, GitHub
 
 ## 2. Picking the feature
 
+- **Before picking anything, do section 9** (learn from the best-performing video so far) and let what you find steer the feature choice, the hook, the length and the caption.
 - "A new feature" means: run `git pull` and `git log` on aurora-bot and pick from the newest update. Read the commit and the code to see exactly how it behaves.
 - Prefer features that are easy to *show* in under 20 s as a before → action → result story.
 - Features already made into videos (don't repeat unless asked): honeypot channels, antinuke, `/server setup`, server backups, right-click (context-menu) commands, a 30 s security demo, and several contest videos.
@@ -121,3 +122,26 @@ Write one each for **TikTok, YouTube Shorts, X and Instagram Reels**, in English
 - Post it on socials, then put the link in **#contest-entries** on the Discord.
 - Runs 15 Oct to 15 Nov 2026. It ends at Discord timestamp `<t:1794783540:F>`.
 - TikTok has removed contest posts before. On TikTok, keep the money and "post to win" out of the video and caption.
+
+---
+
+## 9. Learn from the best-performing video (before every new video)
+
+Before you pick the feature or write a single shot, look at how the videos on the Kaivor accounts have done, find the best one, and work out what made it work.
+
+1. **Pull the numbers from Metricool** (brand / blogId `7853528`, timezone Europe/Oslo) with `getAnalyticsDataByMetrics`, from 30 days ago to today:
+   - TikTok: `TKPO02` (published), `TKPO03` (url), `TKPO05` (caption), `TKPO07` views, `TKPO08` likes, `TKPO09` comments, `TKPO10` shares, plus `TKPO13` full-watch rate and `TKPO15` average watch time when they aren't empty.
+   - YouTube Shorts: `YTVP02` (published), `YTVP17` (title), `YTVP05` (url), `YTVP06` views, `YTVP08` average view duration, `YTVP09` likes, `YTVP11` comments, `YTVP12` shares.
+   - Leave out videos less than 48 hours old: they haven't had time yet.
+2. **Pick the best performer.** Rank by views. When views are close (within about 20 %), the one with more interactions (likes + comments + shares) wins. If the full-watch rate or average watch time is available, a clearly better watch rate beats a few more views. Do this for TikTok and YouTube separately; if YouTube has no numbers yet, use TikTok alone and say so.
+3. **Work out what was good about it.** Match it to its `LOG.md` row and its `videos/<dir>/index.html` (open the page or render a couple of stills; the cover may still be on the `media` branch). Compare it with the weakest videos, not just in isolation. Look at:
+   - the hook: the first line on screen and the first line of the caption (a concrete problem? a number? a question? second person?)
+   - the kind of feature (something members use and see, or a staff/admin tool)
+   - length, pacing, how fast the action starts
+   - the look and the sound
+   - the posting time and the hashtags
+4. **Apply it, within the rules.** Carry over the lesson (e.g. "open on a concrete, relatable problem with a number in it"), never the video itself: the feature, look and sound must still be new, and every other rule in this file still applies. Don't overfit to small differences: with a few hundred views, a gap of a few dozen is noise, so say how strong the signal is.
+5. **Write it down.** Add a dated entry at the top of `ANALYTICS.md`: the best video (date, feature, link, numbers), what you think made it work, how strong the signal is, and what today's video does with it. Commit it with the video. Put one line about it in the final summary.
+
+If Metricool returns nothing useful (no rows, or every number empty), say so in `ANALYTICS.md` and the summary and carry on with the normal rules.
+
