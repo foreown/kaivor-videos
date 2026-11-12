@@ -6,6 +6,7 @@
   "dependencies": {
     "@fontsource/albert-sans": "^5.3.0",
     "@fontsource/alfa-slab-one": "^5.3.0",
+    "@fontsource/anybody": "^5.3.0",
     "@fontsource/archivo": "^5.0.0",
     "@fontsource/atkinson-hyperlegible": "^5.3.0",
     "@fontsource/azeret-mono": "^5.3.0",
@@ -13,6 +14,7 @@
     "@fontsource/big-shoulders-display": "^5.3.0",
     "@fontsource/bodoni-moda": "^5.3.0",
     "@fontsource/bricolage-grotesque": "^5.0.0",
+    "@fontsource/chivo": "^5.3.0",
     "@fontsource/dm-mono": "^5.3.0",
     "@fontsource/epilogue": "^5.3.0",
     "@fontsource/figtree": "^5.0.0",
@@ -31,9 +33,12 @@
     "@fontsource/red-hat-mono": "^5.3.0",
     "@fontsource/rethink-sans": "^5.3.0",
     "@fontsource/schibsted-grotesk": "^5.3.0",
+    "@fontsource/sora": "^5.3.0",
+    "@fontsource/source-code-pro": "^5.3.1",
     "@fontsource/space-grotesk": "^5.0.0",
     "@fontsource/spline-sans-mono": "^5.3.0",
     "@fontsource/syne": "^5.3.0",
-    "@fontsource/unbounded": "^5.3.0"
+    "@fontsource/unbounded": "^5.3.0",
+    "@fontsource/young-serif": "^5.3.0"
   }
 }
