@@ -2,6 +2,18 @@
 
 One entry per video, newest first (VIDEO_RULES.md section 9). Numbers come from Metricool (brand 7853528) and are a snapshot from that day.
 
+## 2026-11-13
+
+**Data:** TikTok again has views, likes, comments and shares; full-watch rate and watch time are empty. YouTube rows come back with titles and links but no numbers, so this read is TikTok only. The 11-11 and 11-12 TikToks are too new (and 11-11 is not in the export yet).
+
+**What changed since 11-12:** Bluesky feeds (11-10) is now old enough to count and stays last at 184 views. Looking at the full 30 days instead of just November, the clear best TikTok is still the antinuke video from 15 Oct: "one hacked admin can wipe your whole server 😳 kaivor bans them on the 3rd channel." with **704** views, 6 likes and 1 share, more than twice any November video. Next is `/server setup` (26 Oct, 380).
+
+**What seems to work:** a high-stakes security problem every server owner fears (a hacked admin, a raid), told as a concrete moment with a number in it, where Kaivor acts on its own. The November member-facing features (privacy, role shop, role colours) all sit around 290–310; the two staff tools without stakes did worst.
+
+**Signal strength: medium for "security beats setup tools"** (704 vs a 184–310 band, though it is one video and older posts had longer to grow), **weak for everything else.**
+
+**What today's video does with it:** picks raid mode with invite and DM pausing (security, Kaivor acts by itself), opens on a concrete moment with numbers ("3:12 am. You're asleep." while a join counter ticks to 5), keeps the antinuke video's shape (problem, Kaivor steps in on its own, the threshold number), and posts in the morning slot where the best-time data allows.
+
 ## 2026-11-12 (first read, made when the rule was added)
 
 **Data:** TikTok has views, likes, comments and shares for every video. Reach, full-watch rate and watch time come back empty. YouTube returns only the 2026-11-01 Short, with no numbers, so this read is TikTok only.
