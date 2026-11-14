@@ -2,6 +2,18 @@
 
 One entry per video, newest first (VIDEO_RULES.md section 9). Numbers come from Metricool (brand 7853528) and are a snapshot from that day.
 
+## 2026-11-14
+
+**Data:** TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. The 11-12 TikTok (repeating events, 311 views) is under 48 h old and left out. **The 11-13 raid mode posts never went out**: both show ERROR "You have reached your Metricool account limit.", so there is no data on the security hook yet.
+
+**What changed since 11-13:** ticket ratings (11-11) is now old enough and lands at 286 views, inside the usual November band (271–312). The antinuke video from 15 Oct (712 views, 6 likes, 1 share) is still the clear best, ahead of `/server setup` (384).
+
+**What seems to work:** unchanged: a security problem every owner fears, told as one concrete moment with a number in it, where Kaivor does the work.
+
+**Signal strength: medium for "security beats setup tools", weak for everything else**, and untested this week because the raid video was never published.
+
+**What today's video does with it:** picks `purge user` (a spammer hits six channels, one command clears all 18 messages), opens on numbers ("One spammer. Six channels." with unread badges filling up), and keeps the antinuke shape: problem, one command, everything undone.
+
 ## 2026-11-13
 
 **Data:** TikTok again has views, likes, comments and shares; full-watch rate and watch time are empty. YouTube rows come back with titles and links but no numbers, so this read is TikTok only. The 11-11 and 11-12 TikToks are too new (and 11-11 is not in the export yet).

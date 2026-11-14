@@ -1,0 +1,343 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: purge a member's messages in every channel at once, `purge user` (aurora-bot commit 24b58af,
+  "Add message search: case search, case evidence, purge user across channels, and note --messages").
+  Look: "spring clean" — deep spruce #0F2620 and butter #EFE4C2 alternating by shot, one accent
+  (lime #C3D64A on dark, olive #56660C on light), a big channel sidebar whose unread badges fill up with spam,
+  and a squeegee bar that wipes down the list, clearing each channel, while a counter runs 18 -> 0.
+  Bowlby One for headlines, Manrope for the chat UI and copy, Inconsolata only for commands.
+  Facts checked in aurora-bot:
+    - src/commands/moderation/search.ts `purge user` (aliases `purge everywhere`, `purgeall`), usage `<member> [amount]`,
+      example `purge user @spammer`; needs Manage Messages; amount 1-500, default 100; only messages from the last
+      14 days (BULK_LIMIT_MS); only channels where Kaivor has Manage Messages and the moderator can see the history,
+      the rest are skipped; searches the whole server with Discord's Search Guild Messages
+      (src/services/search/index.ts); records a PURGE moderation case (recordCase); reply
+      ctx.success(`Deleted **${deleted}** message(s) from **${user.tag}** across ${byChannel.size} channel(s).${note}`),
+      note empty when nothing was skipped. Router prefers the longest command path (src/framework/registry.ts), so
+      `purge user @x` runs this command, not `purge`.
+    - success embed: src/framework/embeds.ts successEmbed, COLORS.success #5BC98C, icon 'success'
+      (green disc + white check, src/services/emoji/index.ts). Default prefix is `,`.
+  Counts: 4 + 3 + 2 + 3 + 4 + 2 = 18 messages in 6 channels, all manageable, so no "skipped" note.
+  "Pixel Pantry" is a made-up server; mira, teo, juno_k and gift_drop4821 are made-up users. The spam link is a
+  grey redaction bar, no real domain.
+  Sound: own sound (music/ is empty), 130 BPM; every shot is a whole number of beats (see sound.py).
+-->
+<style>
+@font-face { font-family: 'Bow'; font-weight: 400; src: url('../../node_modules/@fontsource/bowlby-one/files/bowlby-one-latin-400-normal.woff2'); }
+@font-face { font-family: 'Mr'; font-weight: 500; src: url('../../node_modules/@fontsource/manrope/files/manrope-latin-500-normal.woff2'); }
+@font-face { font-family: 'Mr'; font-weight: 600; src: url('../../node_modules/@fontsource/manrope/files/manrope-latin-600-normal.woff2'); }
+@font-face { font-family: 'Mr'; font-weight: 700; src: url('../../node_modules/@fontsource/manrope/files/manrope-latin-700-normal.woff2'); }
+@font-face { font-family: 'Mr'; font-weight: 800; src: url('../../node_modules/@fontsource/manrope/files/manrope-latin-800-normal.woff2'); }
+@font-face { font-family: 'Inc'; font-weight: 500; src: url('../../node_modules/@fontsource/inconsolata/files/inconsolata-latin-500-normal.woff2'); }
+@font-face { font-family: 'Inc'; font-weight: 600; src: url('../../node_modules/@fontsource/inconsolata/files/inconsolata-latin-600-normal.woff2'); }
+
+:root { --spruce: #0F2620; --butter: #EFE4C2; --ink: #1D2620; --lime: #C3D64A; --olive: #56660C; --soft: #CFC7A6; --softDk: #4E5446; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--spruce); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--spruce); color: var(--butter); }
+.light { background: var(--butter); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Bow'; font-weight: 400; letter-spacing: -0.005em; }
+.line { display: block; overflow: hidden; padding-bottom: 0.06em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Mr'; font-weight: 800; font-size: 30px; letter-spacing: 0.16em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; }
+.sub { position: absolute; left: 100px; right: 100px; text-align: center; font-family: 'Mr'; font-weight: 600; font-size: 42px; line-height: 1.34; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.side { position: absolute; left: 150px; width: 780px; background: #2B2D31; border-radius: 8px; overflow: hidden; font-family: 'Mr'; }
+.side .srv { height: 96px; display: flex; align-items: center; padding: 0 34px; font-size: 34px; font-weight: 700; color: #F2F3F5; border-bottom: 2px solid #1F2023; }
+.side .cat { font-size: 22px; font-weight: 700; letter-spacing: 0.06em; color: #949BA4; padding: 26px 34px 8px; text-transform: uppercase; }
+.side .rows { position: relative; padding: 0 18px 22px; }
+.row { position: relative; height: 92px; display: flex; align-items: center; gap: 18px; padding: 0 22px; border-radius: 6px; }
+.row .pip { position: absolute; left: -18px; top: 50%; width: 8px; height: 16px; margin-top: -8px; background: #F2F3F5; border-radius: 0 4px 4px 0; }
+.row .hash { font-size: 44px; font-weight: 500; color: #80848E; width: 34px; text-align: center; }
+.row .cn { font-size: 36px; font-weight: 600; color: #80848E; flex: 1; }
+.row.unread .cn { color: #F2F3F5; font-weight: 800; }
+.row .badge { min-width: 52px; height: 44px; border-radius: 22px; background: #DA373C; color: #fff; font-size: 28px; font-weight: 800;
+              display: flex; align-items: center; justify-content: center; padding: 0 14px; }
+.squeegee { position: absolute; left: 6px; right: 6px; height: 22px; background: var(--lime); border-bottom: 8px solid #2A3A10; border-radius: 3px; }
+.trail { position: absolute; left: 6px; right: 6px; top: 0; background: rgba(195, 214, 74, 0.07); }
+
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Mr'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 500; }
+.chat .top .name { font-size: 32px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 24px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 600; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 24px; padding: 14px 32px; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 34px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: baseline; gap: 14px; }
+.who { font-size: 32px; font-weight: 700; color: #F2F3F5; }
+.app { font-size: 19px; font-weight: 800; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; transform: translateY(-4px); }
+.time { font-size: 22px; color: #949BA4; font-weight: 600; }
+.text { font-size: 34px; line-height: 1.42; color: #DBDEE1; margin-top: 3px; font-weight: 500; }
+.text.cmd { font-family: 'Inc'; font-weight: 500; font-size: 34px; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 4px; font-weight: 600; }
+.text b, .embed b { color: #F2F3F5; font-weight: 800; }
+.redact { display: inline-block; width: 330px; height: 30px; background: #4E5058; border-radius: 3px; vertical-align: -4px; }
+.embed { margin-top: 10px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 28px; font-size: 32px; line-height: 1.45; max-width: 820px; font-weight: 500; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 38px; height: 38px; flex: none; margin-top: 5px; }
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 800;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 31px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 600; }
+.typed { font-family: 'Inc'; font-weight: 500; font-size: 34px; color: #DBDEE1; line-height: 1.35; }
+.caret { display: inline-block; width: 3px; height: 36px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+.counter { position: absolute; left: 0; right: 0; display: flex; justify-content: center; align-items: flex-end; gap: 30px; }
+.counter .num { font-family: 'Bow'; font-size: 230px; line-height: 250px; height: 250px; width: 380px; text-align: right; position: relative; overflow: hidden; }
+.counter .num span { position: absolute; left: 0; right: 0; top: 0; height: 250px; }
+.counter .lab { font-family: 'Mr'; font-weight: 800; font-size: 32px; line-height: 1.25; letter-spacing: 0.12em; text-transform: uppercase; width: 380px; padding-bottom: 40px; }
+
+.rule { position: absolute; left: 50%; width: 760px; margin-left: -380px; height: 6px; }
+.facts { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Mr'; font-weight: 700; font-size: 46px; line-height: 1.3; }
+.facts .line { padding: 14px 0; }
+
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Inc'; font-weight: 600; font-size: 46px; background: var(--spruce); color: var(--butter); padding: 20px 34px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Bow'; font-size: 96px; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (dark) -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:96px;font-size:100px;line-height:1.0">
+    <span class="line"><span>One spammer.</span></span>
+    <span class="line"><span style="color:var(--lime)">Six channels.</span></span>
+  </div>
+  <div class="side" id="side0" style="top:380px"></div>
+  <div class="chat" id="chat0" style="top:1230px;height:300px"></div>
+  <div class="sub" id="sub0" style="top:1620px;color:var(--soft)">18 messages to delete,<br>one channel at a time.</div>
+</section>
+
+<!-- 1 turn (light) -->
+<section class="shot light" id="s1">
+  <div class="head" style="top:700px;font-size:150px;line-height:1.0">
+    <span class="line"><span>Or one</span></span>
+    <span class="line"><span style="color:var(--olive)">command.</span></span>
+  </div>
+</section>
+
+<!-- 2 action (dark) -->
+<section class="shot dark" id="s2">
+  <div class="kicker" style="top:330px;color:var(--lime)">From #staff</div>
+  <div class="chat" id="chat2" style="top:410px;height:900px"></div>
+  <div class="sub" id="sub2" style="top:1400px;color:var(--soft)">Kaivor searches the whole server<br>for their messages.</div>
+</section>
+
+<!-- 3 result (light) -->
+<section class="shot light" id="s3">
+  <div class="head" style="top:96px;font-size:100px;line-height:1.0">
+    <span class="line"><span>Six channels.</span></span>
+    <span class="line"><span style="color:var(--olive)">Clean.</span></span>
+  </div>
+  <div class="side" id="side3" style="top:380px"></div>
+  <div class="counter" id="cnt3" style="top:1220px"></div>
+  <div class="sub" id="sub3" style="top:1580px;color:var(--softDk)">No clicking through channels<br>one by one.</div>
+</section>
+
+<!-- 4 key fact (dark) -->
+<section class="shot dark" id="s4">
+  <div class="head" style="top:560px;font-size:88px;line-height:1.02">
+    <span class="line"><span>Only channels</span></span>
+    <span class="line"><span style="color:var(--lime)">you can manage.</span></span>
+  </div>
+  <div class="rule" id="rule4" style="top:870px;background:var(--lime)"></div>
+  <div class="facts" id="facts4" style="top:950px;color:var(--butter)">
+    <span class="line"><span>Messages from the last 14 days.</span></span>
+    <span class="line"><span>Up to 500 in one go.</span></span>
+    <span class="line"><span>Saved as a mod case.</span></span>
+  </div>
+</section>
+
+<!-- 5 end card (light) -->
+<section class="shot light" id="s5">
+  <img class="logo" id="logo5" src="../../assets/kaivor-logo.png" style="top:420px">
+  <div class="kicker" style="top:740px;color:var(--olive)">New in Kaivor</div>
+  <div class="head" style="top:810px;font-size:96px;line-height:1.02">
+    <span class="line"><span>Purge a member</span></span>
+    <span class="line"><span style="color:var(--olive)">everywhere</span></span>
+  </div>
+  <div class="pills" id="pills5" style="top:1100px"><span class="pill">,purge user @member</span></div>
+  <div class="url" style="top:1300px" id="url5">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BPM = 130;
+const BEAT = 60 / BPM;
+const beats = [8, 3, 10, 11, 6, 7];
+const names = ['hook', 'turn', 'action', 'result', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: BPM, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  mira: { name: 'mira', bg: '#8A5A7C', i: 'M' },
+  teo:  { name: 'teo', bg: '#4E7A6A', i: 'T' },
+  juno: { name: 'juno_k', bg: '#3F6E8C', i: 'J' },
+  spam: { name: 'gift_drop4821', bg: '#9B6B2F', i: 'G' },
+  bot:  { name: 'Kaivor', bot: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const md = (s) => esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+
+// ---- the spam: 4 + 3 + 2 + 3 + 4 + 2 = 18 messages in 6 channels ----
+const CH = [
+  { n: 'general', c: 4 }, { n: 'memes', c: 3 }, { n: 'clips', c: 2 },
+  { n: 'art', c: 3 }, { n: 'gaming', c: 4 }, { n: 'help', c: 2 },
+];
+// arrival order (channel index per message), interleaved like a script hopping channels
+const ORDER = [0, 1, 4, 3, 0, 2, 5, 1, 4, 0, 3, 4, 1, 2, 5, 3, 0, 4];
+const SPAM_AT = ORDER.map((_, k) => B(0.9) + k * B(0.25));   // beats 0.9 .. 5.15, two per beat
+window.SPAM_AT = SPAM_AT;
+
+function sideHTML(counts, wipeY) {
+  const rows = CH.map((ch, i) => {
+    const n = counts[i];
+    return `<div class="row${n > 0 ? ' unread' : ''}">${n > 0 ? '<span class="pip"></span>' : ''}<span class="hash">#</span>` +
+      `<span class="cn">${ch.n}</span>${n > 0 ? `<span class="badge">${n}</span>` : ''}</div>`;
+  }).join('');
+  const sq = wipeY == null ? '' : `<div class="trail" style="height:${Math.max(0, wipeY)}px"></div><div class="squeegee" style="top:${wipeY - 11}px"></div>`;
+  return `<div class="srv">Pixel Pantry</div><div class="cat">Text channels</div><div class="rows">${rows}${sq}</div>`;
+}
+
+function msgHTML(m) {
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.bot ? '<span class="app">APP</span>' : '';
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${md(m.text)}</div>`;
+  if (m.embed) content += `<div class="embed">${m.embed}</div>`;
+  return `<div class="msg">${av}<div class="body"><div class="meta"><span class="who">${u.name}</span>${app}<span class="time">${m.time}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  let input = '';
+  if (opts.input !== false) {
+    const typed = opts.typed || '';
+    input = `<div class="input"><span class="plus">+</span>${typed
+      ? `<span class="typed">${esc(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+      : `<span class="ph">Message #${opts.channel}</span>`}</div>`;
+  }
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, 0.18));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.36));
+    s.style.transform = `translateY(${(1 - e) * 112}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.34));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+
+// ---- bot line copied from aurora-bot src/commands/moderation/search.ts (purge user), nothing skipped ----
+const CMD = ',purge user @gift_drop4821';
+const DONE = `<div class="st">${CHECK}<div>${md('Deleted **18** messages from **gift_drop4821** across 6 channels.')}</div></div>`;
+const SPAM_LINE = 'free nitro for everyone, claim it before it runs out <span class="redact"></span>';
+
+// result wipe: row i is cleared when the squeegee passes its middle
+const ROW_H = 92, WIPE_A = B(1.6), WIPE_D = B(5.2);
+const CLEAR_AT = CH.map((_, i) => WIPE_A + WIPE_D * ((i + 0.5) / CH.length));
+window.CLEAR_AT = CLEAR_AT;
+
+const S = [...document.querySelectorAll('.shot')];
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, '.head', t, 0.0, 0.14);
+    const counts = CH.map(() => 0);
+    ORDER.forEach((c, k) => { if (t >= SPAM_AT[k]) counts[c] += 1; });
+    document.getElementById('side0').innerHTML = sideHTML(counts, null);
+    // badge pop on the newest arrival
+    const k = SPAM_AT.filter((a) => t >= a).length - 1;
+    if (k >= 0) {
+      const badge = document.querySelectorAll('#side0 .row')[ORDER[k]].querySelector('.badge');
+      const e = out4(p(t, SPAM_AT[k], 0.14));
+      if (badge) badge.style.transform = `scale(${1.25 - 0.25 * e})`;
+    }
+    const gen = SPAM_AT.filter((a, j) => ORDER[j] === 0);
+    renderChat(document.getElementById('chat0'), t, [
+      { u: 'spam', html: SPAM_LINE, at: gen[gen.length - 1] <= t ? gen[gen.length - 1] : gen[0], time: 'Today at 21:04' },
+    ].filter(() => t >= gen[0]), { channel: 'general', topic: 'Pixel Pantry', input: false });
+    rise('sub0', t, B(5.6));
+  } else if (shot === 1) {
+    lines(sec, '.head', t, 0.0, 0.1);
+  } else if (shot === 2) {
+    const send = B(4.4), rep = B(5.3);
+    const msgs = [
+      { u: 'juno', text: 'mods?? same spam in #art and #help', at: -1, time: 'Today at 21:04' },
+      { u: 'teo', text: 'he hit every channel in like 10 seconds', at: -1, time: 'Today at 21:05' },
+      { u: 'mira', cmd: true, html: `,purge user <span class="mention">@gift_drop4821</span>`, at: send, time: 'Today at 21:05' },
+      { u: 'bot', embed: DONE, at: rep, time: 'Today at 21:05' },
+    ];
+    let typed = '', caret = false;
+    if (t >= B(0.4) && t < send) { typed = CMD.slice(0, Math.ceil(CMD.length * inout(p(t, B(0.4), B(3.6))))); caret = true; }
+    renderChat(document.getElementById('chat2'), t, msgs, { channel: 'staff', topic: 'mods only', typed, caret });
+    rise('sub2', t, B(6.6));
+  } else if (shot === 3) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    const counts = CH.map((ch, i) => (t >= CLEAR_AT[i] ? 0 : ch.c));
+    const wipeT = inout(p(t, WIPE_A, WIPE_D));
+    const wipeY = t < WIPE_A - 0.05 ? null : wipeT * CH.length * ROW_H;
+    document.getElementById('side3').innerHTML = sideHTML(counts, wipeY);
+    const left = counts.reduce((a, b) => a + b, 0);
+    const lastClear = CLEAR_AT.filter((a) => t >= a).pop();
+    const k = lastClear != null ? out4(p(t, lastClear, 0.16)) : 1;
+    const prevLeft = lastClear != null ? left + CH[CLEAR_AT.indexOf(lastClear)].c : left;
+    document.getElementById('cnt3').innerHTML =
+      `<div class="num" style="color:${left === 0 ? 'var(--olive)' : 'var(--ink)'}"><span style="transform:translateY(${(k - 1) * 100}%)">${left}</span>` +
+      (lastClear != null ? `<span style="transform:translateY(${k * 100}%);opacity:${1 - k}">${prevLeft}</span>` : '') +
+      `</div><div class="lab" style="color:${left === 0 ? 'var(--olive)' : 'var(--softDk)'}">messages<br>left</div>`;
+    rise('cnt3', t, B(0.8));
+    rise('sub3', t, B(8.2));
+  } else if (shot === 4) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    const r = out4(p(t, B(1.0), 0.4));
+    document.getElementById('rule4').style.transform = `scaleX(${r})`;
+    lines(sec, '.facts', t, B(1.4), B(0.75));
+  } else if (shot === 5) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo5');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills5', t, B(1.5));
+    rise('url5', t, B(2.3));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
