@@ -2,6 +2,18 @@
 
 One entry per video, newest first (VIDEO_RULES.md section 9). Numbers come from Metricool (brand 7853528) and are a snapshot from that day.
 
+## 2026-11-15
+
+**Data:** TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. **The 11-13 (raid mode) and 11-14 (purge user) posts never went out**: all four show ERROR "You have reached your Metricool account limit.", so there is still no data on the security hooks.
+
+**What changed since 11-14:** the 30-day window now starts on 16 Oct, so the antinuke video (15 Oct, ~712 views) has dropped out of the export. The best TikTok in the window is `/server setup` (26 Oct): 384 views, 5 likes. Repeating events (11-12) is now old enough and lands at **311** views, 5 likes, 1 share: the best November video, just above privacy opt-out (312 views, 2 likes) on interactions, with a hook that names a concrete miss ("game night was yesterday. nobody made the event.").
+
+**What seems to work:** unchanged: one concrete, relatable moment that went wrong, with a number in it, where Kaivor does the work. Big, high-stakes results (antinuke, `/server setup`) still sit above the 270–312 band of everyday features.
+
+**Signal strength: medium for "high stakes beats small conveniences", weak for everything else.** The November band is still tight (273–312), and the security test is two days overdue because nothing published.
+
+**What today's video does with it:** picks compromised bot quarantine (an antinuke module from 26 Oct, newer than the 15 Oct antinuke video): a hijacked music bot posts the same scam link in three channels, and Kaivor strips its roles and removes the posts on the third one. Opens on the concrete moment ("Your music bot just got hacked."), keeps the antinuke shape (problem, Kaivor steps in by itself, the threshold number 3), and keeps the caption in second person.
+
 ## 2026-11-14
 
 **Data:** TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. The 11-12 TikTok (repeating events, 311 views) is under 48 h old and left out. **The 11-13 raid mode posts never went out**: both show ERROR "You have reached your Metricool account limit.", so there is no data on the security hook yet.

@@ -1,0 +1,405 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: compromised bot quarantine, `antinuke botquarantine on` (aurora-bot commit eb14fac,
+  "Add antinuke test mode, threshold suggestions and bot quarantine").
+  Look: "containment" — olive drab #23261A and fog #E2E3DC alternating by shot, one accent (tangerine #EA7330 on
+  dark, rust #B4501A on light), a row of three channel tiles that count the hijacked bot's posts 1-2-3, and a
+  heavy corner-bracket frame that snaps shut around the bot's member card while its roles drop off.
+  Anton for headlines, Public Sans for the chat UI and copy, Ubuntu Mono only for commands.
+  Facts checked in aurora-bot:
+    - src/services/antinuke/quarantine.ts: a bot (not a webhook, not Kaivor) whose message has a link, an invite,
+      @everyone/@here or 3+ mentions counts as a risky post; it trips when posts >= threshold across at least two
+      channels inside the module window (quarantineTriggered). Then non-managed roles are removed, its own managed
+      role is emptied of permissions, and the burst is bulk-deleted in each channel. Outcome 'quarantined'.
+    - src/services/antinuke/index.ts: MODULE_LABELS.BOT_QUARANTINE 'Compromised bot quarantine'; announce() embed:
+      COLORS.error, author "Antinuke · <label>", description "<@bot> went past the limit in **<server>**, so I stepped
+      in.", fields Executor (mention + id), Actions (count), Result (OUTCOME_LABELS.quarantined = "Quarantined: its
+      roles were taken away and its messages removed"), footer "Punishment setting: stripstaff"; sendAlert(..., true)
+      also DMs the owner.
+    - src/commands/antinuke/antinuke.ts: module command `antinuke botquarantine` (slug of BOT_QUARANTINE), only
+      stripstaff or none allowed, punishment defaults to STRIPSTAFF; reply ctx.success(`**${label}** enabled ·
+      threshold **${threshold}** per ${formatDuration(windowSec*1000)}, punishment \`${punishment}\`.`).
+      prisma/schema.prisma AntinukeModule defaults: threshold 3, windowSec 60 -> "per 1 minute"
+      (src/parsers/duration.ts formatDuration). Owner or antinuke admin only.
+    - success embed: src/framework/embeds.ts successEmbed, COLORS.success #5BC98C, error #E0575B. Default prefix `,`.
+  Counts: Tunewell posts once in #general, #memes and #announcements = 3 posts in 3 channels, threshold 3 -> trips on
+  the third post, Actions 3, all three posts removed.
+  "Night Owls" is a made-up server; Tunewell is a made-up bot; mira, teo and juno_k are made-up users. The scam link
+  is a grey redaction bar, no real domain. The bot ID is made up.
+  Sound: own sound (music/ is empty), 144 BPM; every shot is a whole number of beats (see sound.py).
+-->
+<style>
+@font-face { font-family: 'Ant'; font-weight: 400; src: url('../../node_modules/@fontsource/anton/files/anton-latin-400-normal.woff2'); }
+@font-face { font-family: 'Ps'; font-weight: 500; src: url('../../node_modules/@fontsource/public-sans/files/public-sans-latin-500-normal.woff2'); }
+@font-face { font-family: 'Ps'; font-weight: 600; src: url('../../node_modules/@fontsource/public-sans/files/public-sans-latin-600-normal.woff2'); }
+@font-face { font-family: 'Ps'; font-weight: 700; src: url('../../node_modules/@fontsource/public-sans/files/public-sans-latin-700-normal.woff2'); }
+@font-face { font-family: 'Ps'; font-weight: 800; src: url('../../node_modules/@fontsource/public-sans/files/public-sans-latin-800-normal.woff2'); }
+@font-face { font-family: 'Um'; font-weight: 400; src: url('../../node_modules/@fontsource/ubuntu-mono/files/ubuntu-mono-latin-400-normal.woff2'); }
+@font-face { font-family: 'Um'; font-weight: 700; src: url('../../node_modules/@fontsource/ubuntu-mono/files/ubuntu-mono-latin-700-normal.woff2'); }
+
+:root { --drab: #23261A; --fog: #E2E3DC; --ink: #22251A; --tang: #EA7330; --rust: #B4501A; --soft: #B5B8A8; --softDk: #5A5E4D; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--drab); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--drab); color: var(--fog); }
+.light { background: var(--fog); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ant'; font-weight: 400; letter-spacing: 0.005em; text-transform: uppercase; }
+.line { display: block; overflow: hidden; padding-bottom: 0.04em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Ps'; font-weight: 800; font-size: 30px; letter-spacing: 0.18em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Ps'; font-weight: 600; font-size: 42px; line-height: 1.34; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Ps'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 500; }
+.chat .top .name { font-size: 32px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 24px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 600; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 24px; padding: 14px 32px; }
+.msg.ping { background: rgba(240, 177, 50, 0.1); box-shadow: inset 5px 0 0 #F0B132; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 34px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: baseline; gap: 14px; }
+.who { font-size: 32px; font-weight: 700; color: #F2F3F5; }
+.app { font-size: 19px; font-weight: 800; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; transform: translateY(-4px); }
+.time { font-size: 22px; color: #949BA4; font-weight: 600; }
+.text { font-size: 34px; line-height: 1.42; color: #DBDEE1; margin-top: 3px; font-weight: 500; }
+.text.cmd { font-family: 'Um'; font-weight: 400; font-size: 36px; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 4px; font-weight: 600; }
+.text b, .embed b { color: #F2F3F5; font-weight: 800; }
+.code { font-family: 'Um'; font-size: 0.92em; background: #1E1F22; border-radius: 4px; padding: 1px 7px; color: #DBDEE1; }
+.redact { display: inline-block; width: 300px; height: 30px; background: #4E5058; border-radius: 3px; vertical-align: -4px; }
+.embed { margin-top: 10px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 28px; font-size: 32px; line-height: 1.45; max-width: 820px; font-weight: 500; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 38px; height: 38px; flex: none; margin-top: 5px; }
+.embed.alert { border-left-color: #E0575B; font-size: 28px; padding: 22px 28px 20px; }
+.embed .au { font-size: 26px; font-weight: 800; color: #F2F3F5; margin-bottom: 8px; }
+.embed .fields { display: grid; grid-template-columns: 1fr 0.62fr 1.5fr; gap: 0 26px; margin-top: 16px; }
+.embed .fn { font-size: 24px; font-weight: 800; color: #F2F3F5; margin-bottom: 4px; }
+.embed .fv { font-size: 26px; line-height: 1.38; }
+.embed .ft { font-size: 21px; color: #A5A9B0; margin-top: 16px; font-weight: 600; }
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 800;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 31px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 600; }
+.typed { font-family: 'Um'; font-weight: 400; font-size: 36px; color: #DBDEE1; line-height: 1.35; }
+.caret { display: inline-block; width: 3px; height: 36px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* channel list for the hook */
+.side { position: absolute; left: 150px; width: 780px; background: #2B2D31; border-radius: 8px; overflow: hidden; font-family: 'Ps'; padding: 14px 18px; }
+.row { position: relative; height: 84px; display: flex; align-items: center; gap: 18px; padding: 0 22px; border-radius: 6px; }
+.row .pip { position: absolute; left: -18px; top: 50%; width: 8px; height: 16px; margin-top: -8px; background: #F2F3F5; border-radius: 0 4px 4px 0; }
+.row .hash { font-size: 42px; font-weight: 500; color: #80848E; width: 34px; text-align: center; }
+.row .cn { font-size: 34px; font-weight: 600; color: #80848E; flex: 1; }
+.row.unread .cn { color: #F2F3F5; font-weight: 800; }
+.row .badge { min-width: 50px; height: 42px; border-radius: 21px; background: #DA373C; color: #fff; font-size: 27px; font-weight: 800;
+              display: flex; align-items: center; justify-content: center; padding: 0 14px; }
+
+/* result: three channel tiles */
+.tiles { position: absolute; left: 60px; width: 960px; display: flex; gap: 24px; }
+.tile { flex: 1; height: 236px; background: #2B2D31; border-radius: 8px; font-family: 'Ps'; position: relative; overflow: hidden; padding: 20px 22px; }
+.tile .tn { font-size: 27px; font-weight: 800; color: #F2F3F5; white-space: nowrap; }
+.tile .tn i { font-style: normal; color: #80848E; font-weight: 500; margin-right: 6px; }
+.tile .post { position: absolute; left: 22px; right: 22px; top: 78px; display: flex; gap: 12px; align-items: center; }
+.tile .post .dot { width: 44px; height: 44px; border-radius: 50%; background: #3D6F8E; flex: none; color: #fff; font-weight: 800; font-size: 20px; display: flex; align-items: center; justify-content: center; }
+.tile .post .bars { flex: 1; }
+.tile .post .bars span { display: block; height: 14px; border-radius: 3px; background: #4E5058; margin: 7px 0; }
+.tile .gone { position: absolute; left: 22px; right: 22px; top: 92px; font-size: 24px; font-weight: 700; color: #949BA4; }
+.tile .n { position: absolute; right: 18px; bottom: 6px; font-family: 'Ant'; font-size: 92px; line-height: 1; color: var(--tang); }
+
+/* result: the bot's member card and the containment frame */
+.card { position: absolute; left: 140px; width: 800px; height: 300px; background: #232428; border-radius: 10px; font-family: 'Ps'; padding: 34px 40px; }
+.card .who2 { display: flex; align-items: center; gap: 22px; }
+.card .who2 .av { width: 96px; height: 96px; font-size: 40px; }
+.card .nm { font-size: 40px; font-weight: 800; color: #F2F3F5; }
+.card .rl { font-size: 22px; font-weight: 800; letter-spacing: 0.08em; color: #949BA4; text-transform: uppercase; margin: 26px 0 12px; }
+.card .roles { display: flex; gap: 14px; align-items: center; height: 52px; }
+.role { display: flex; align-items: center; gap: 10px; height: 50px; padding: 0 18px; background: #2E3035; border-radius: 6px; font-size: 26px; font-weight: 700; color: #DBDEE1; white-space: nowrap; }
+.role .c { width: 18px; height: 18px; border-radius: 50%; }
+.role.empty { color: #949BA4; }
+.frame { position: absolute; pointer-events: none; }
+.frame i { position: absolute; width: 90px; height: 90px; border: 0 solid var(--rust); }
+.frame i:nth-child(1) { left: 0; top: 0; border-left-width: 16px; border-top-width: 16px; }
+.frame i:nth-child(2) { right: 0; top: 0; border-right-width: 16px; border-top-width: 16px; }
+.frame i:nth-child(3) { left: 0; bottom: 0; border-left-width: 16px; border-bottom-width: 16px; }
+.frame i:nth-child(4) { right: 0; bottom: 0; border-right-width: 16px; border-bottom-width: 16px; }
+.tag { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ps'; font-weight: 800; font-size: 28px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--rust); }
+
+.rule { position: absolute; left: 50%; width: 700px; margin-left: -350px; height: 6px; }
+.facts { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ps'; font-weight: 700; font-size: 46px; line-height: 1.3; }
+
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Um'; font-weight: 700; font-size: 48px; background: var(--drab); color: var(--fog); padding: 20px 34px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ant'; font-size: 100px; letter-spacing: 0.01em; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (dark) -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:100px;font-size:124px;line-height:1.02">
+    <span class="line"><span>Your music bot</span></span>
+    <span class="line"><span style="color:var(--tang)">just got hacked.</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:450px;height:560px"></div>
+  <div class="side" id="side0" style="top:1090px"></div>
+  <div class="sub" id="sub0" style="top:1470px;color:var(--soft)">Same scam link.<br>Three channels.</div>
+</section>
+
+<!-- 1 turn (light) -->
+<section class="shot light" id="s1">
+  <div class="head" style="top:640px;font-size:170px;line-height:1.0">
+    <span class="line"><span>It still has</span></span>
+    <span class="line"><span style="color:var(--rust)">all its roles.</span></span>
+  </div>
+</section>
+
+<!-- 2 action (dark) -->
+<section class="shot dark" id="s2">
+  <div class="kicker" style="top:320px;color:var(--tang)">Set it up once</div>
+  <div class="chat" id="chat2" style="top:420px;height:820px"></div>
+  <div class="sub" id="sub2" style="top:1350px;color:var(--soft)">Kaivor watches every bot for links,<br>invites and mass mentions.</div>
+</section>
+
+<!-- 3 result (light) -->
+<section class="shot light" id="s3">
+  <div class="head" style="top:96px;font-size:104px;line-height:1.02">
+    <span class="line"><span>Third post.</span></span>
+    <span class="line"><span style="color:var(--rust)">Quarantined.</span></span>
+  </div>
+  <div class="tiles" id="tiles3" style="top:370px"></div>
+  <div class="card" id="card3" style="top:676px"></div>
+  <div class="frame" id="frame3"><i></i><i></i><i></i><i></i></div>
+  <div class="tag" id="tag3" style="top:1012px">Roles taken away</div>
+  <div class="chat" id="chat3" style="top:1090px;height:560px;background:#313338"></div>
+</section>
+
+<!-- 4 key fact (dark) -->
+<section class="shot dark" id="s4">
+  <div class="head" style="top:560px;font-size:138px;line-height:1.02">
+    <span class="line"><span>Roles: gone.</span></span>
+    <span class="line"><span style="color:var(--tang)">Posts: gone.</span></span>
+  </div>
+  <div class="rule" id="rule4" style="top:900px;background:var(--tang)"></div>
+  <div class="facts" id="facts4" style="top:960px;color:var(--fog)">
+    <span class="line"><span>And the owner gets a DM.</span></span>
+  </div>
+</section>
+
+<!-- 5 end card (light) -->
+<section class="shot light" id="s5">
+  <img class="logo" id="logo5" src="../../assets/kaivor-logo.png" style="top:400px">
+  <div class="kicker" style="top:720px;color:var(--rust)">New in Kaivor</div>
+  <div class="head" style="top:790px;font-size:112px;line-height:1.02">
+    <span class="line"><span>Compromised bot</span></span>
+    <span class="line"><span style="color:var(--rust)">quarantine</span></span>
+  </div>
+  <div class="pills" id="pills5" style="top:1110px"><span class="pill">,antinuke botquarantine on</span></div>
+  <div class="url" style="top:1300px" id="url5">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BPM = 144;
+const BEAT = 60 / BPM;
+const beats = [8, 3, 9, 12, 5, 11];
+const names = ['hook', 'turn', 'action', 'result', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: BPM, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  mira: { name: 'mira', bg: '#8A5A7C', i: 'M' },
+  teo:  { name: 'teo', bg: '#4E7A6A', i: 'T' },
+  juno: { name: 'juno_k', bg: '#7A6A3F', i: 'J' },
+  tune: { name: 'Tunewell', bg: '#3D6F8E', i: '♪', app: true },
+  bot:  { name: 'Kaivor', bot: true, app: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const md = (s) => esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<span class="code">$1</span>');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+
+const SCAM = '<span class="mention">@everyone</span> free nitro for everyone, claim it here <span class="redact"></span>';
+
+function msgHTML(m) {
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${md(m.text)}</div>`;
+  if (m.embed) content += `<div class="embed${m.alert ? ' alert' : ''}">${m.embed}</div>`;
+  return `<div class="msg${m.ping ? ' ping' : ''}">${av}<div class="body"><div class="meta"><span class="who">${u.name}</span>${app}<span class="time">${m.time}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = `<span class="hash">${opts.dm ? '@' : '#'}</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  let input = '';
+  if (opts.input !== false) {
+    const typed = opts.typed || '';
+    input = `<div class="input"><span class="plus">+</span>${typed
+      ? `<span class="typed">${esc(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+      : `<span class="ph">Message #${opts.channel}</span>`}</div>`;
+  }
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, 0.18));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.34));
+    s.style.transform = `translateY(${(1 - e) * 112}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.32));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+
+// ---- the hijacked bot: one risky post in each of three channels ----
+const CH = ['general', 'memes', 'announcements'];
+const HOOK_AT = [B(1.0), B(2.25), B(3.5)];
+window.HOOK_AT = HOOK_AT;
+
+function sideHTML(t) {
+  return CH.map((n, i) => {
+    const on = t >= HOOK_AT[i];
+    const e = on ? out4(p(t, HOOK_AT[i], 0.14)) : 0;
+    return `<div class="row${on ? ' unread' : ''}">${on ? '<span class="pip"></span>' : ''}<span class="hash">#</span><span class="cn">${n}</span>` +
+      (on ? `<span class="badge" style="transform:scale(${1.3 - 0.3 * e})">1</span>` : '') + '</div>';
+  }).join('');
+}
+
+// ---- Kaivor's lines, copied from aurora-bot ----
+const CMD = ',antinuke botquarantine on';
+const DONE = `<div class="st">${CHECK}<div>${md('**Compromised bot quarantine** enabled · threshold **3** per 1 minute, punishment `STRIPSTAFF`.')}</div></div>`;
+const BOT_ID = '1172398645107283968';
+const ALERT =
+  `<div class="au">Antinuke · Compromised bot quarantine</div>` +
+  `<div><span class="mention">@Tunewell</span> went past the limit in <b>Night Owls</b>, so I stepped in.</div>` +
+  `<div class="fields">` +
+  `<div><div class="fn">Executor</div><div class="fv"><span class="mention">@Tunewell</span><br><span class="code">${BOT_ID}</span></div></div>` +
+  `<div><div class="fn">Actions</div><div class="fv">3</div></div>` +
+  `<div><div class="fn">Result</div><div class="fv">Quarantined: its roles were taken away and its messages removed</div></div>` +
+  `</div><div class="ft">Punishment setting: stripstaff · Today at 23:51</div>`;
+
+// ---- result timing ----
+const POST_AT = [B(0.5), B(1.5), B(2.5)];
+const TRIP = B(2.5);
+const DROP = B(3.25);
+const ALERT_AT = B(5.5);
+window.POST_AT = POST_AT; window.TRIP = TRIP; window.DROP = DROP; window.ALERT_AT = ALERT_AT;
+
+function tilesHTML(t) {
+  return CH.map((n, i) => {
+    const posted = t >= POST_AT[i];
+    const removed = t >= DROP;
+    const e = posted ? out4(p(t, POST_AT[i], 0.16)) : 0;
+    const r = removed ? out4(p(t, DROP, 0.22)) : 0;
+    const post = posted && r < 1
+      ? `<div class="post" style="opacity:${e * (1 - r)};transform:translateY(${(1 - e) * 30 - r * 24}px)"><span class="dot">♪</span><span class="bars"><span style="width:92%"></span><span style="width:64%"></span></span></div>`
+      : '';
+    const gone = removed ? `<div class="gone" style="opacity:${r}">Message removed</div>` : '';
+    const num = posted ? `<div class="n" style="opacity:${e};transform:translateY(${(1 - e) * 40}px)">${i + 1}</div>` : '';
+    return `<div class="tile"><div class="tn"><i>#</i>${n}</div>${post}${gone}${num}</div>`;
+  }).join('');
+}
+
+function cardHTML(t) {
+  const d = out4(p(t, DROP, 0.3));
+  const role = (name, col, k) => {
+    if (t < DROP) return `<span class="role"><span class="c" style="background:${col}"></span>${name}</span>`;
+    const q = out4(p(t, DROP + k * B(0.5), 0.3));
+    return q >= 1 ? '' : `<span class="role" style="opacity:${1 - q};transform:translateY(${q * 40}px)"><span class="c" style="background:${col}"></span><s>${name}</s></span>`;
+  };
+  const managed = t >= DROP + B(1.0)
+    ? `<span class="role empty"><span class="c" style="background:#6D6F78"></span>Tunewell · no permissions</span>`
+    : `<span class="role"><span class="c" style="background:#3D6F8E"></span>Tunewell</span>`;
+  return `<div class="who2"><div class="av" style="background:#3D6F8E">♪</div><span class="nm">Tunewell</span><span class="app">APP</span></div>` +
+    `<div class="rl">Roles</div><div class="roles">${managed}${role('Moderator', '#C27C3A', 0)}${role('DJ', '#7C9A4A', 1)}</div>`;
+}
+
+const S = [...document.querySelectorAll('.shot')];
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, '.head', t, 0.0, 0.14);
+    document.getElementById('side0').innerHTML = sideHTML(t);
+    renderChat(document.getElementById('chat0'), t, [
+      { u: 'teo', text: 'who queued four hours of lofi', at: -1, time: 'Today at 02:13' },
+      { u: 'juno', text: 'not me lol', at: -1, time: 'Today at 02:13' },
+      { u: 'tune', html: SCAM, at: HOOK_AT[0], time: 'Today at 02:14', ping: true },
+    ], { channel: 'general', topic: 'Night Owls', input: false });
+    rise('sub0', t, B(5.0));
+  } else if (shot === 1) {
+    lines(sec, '.head', t, 0.0, 0.1);
+  } else if (shot === 2) {
+    const send = B(4.6), rep = B(5.5);
+    const msgs = [
+      { u: 'teo', text: 'can we stop that from happening again?', at: -1, time: 'Today at 09:40' },
+      { u: 'mira', cmd: true, html: esc(CMD), at: send, time: 'Today at 09:41' },
+      { u: 'bot', embed: DONE, at: rep, time: 'Today at 09:41' },
+    ];
+    let typed = '', caret = false;
+    if (t >= B(0.6) && t < send) { typed = CMD.slice(0, Math.ceil(CMD.length * inout(p(t, B(0.6), B(3.6))))); caret = true; }
+    renderChat(document.getElementById('chat2'), t, msgs, { channel: 'staff', topic: 'mods only', typed, caret });
+    rise('sub2', t, B(6.6));
+  } else if (shot === 3) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    document.getElementById('tiles3').innerHTML = tilesHTML(t);
+    const card = document.getElementById('card3');
+    card.innerHTML = cardHTML(t);
+    // the containment frame snaps shut around the card on the third post
+    const fr = document.getElementById('frame3');
+    const k = out4(p(t, TRIP, 0.22));
+    const pad = 30 + (1 - k) * 70;
+    fr.style.left = `${140 - pad}px`; fr.style.top = `${676 - pad}px`;
+    fr.style.width = `${800 + 2 * pad}px`; fr.style.height = `${300 + 2 * pad}px`;
+    fr.style.opacity = String(k);
+    rise('tag3', t, DROP + B(0.3));
+    renderChat(document.getElementById('chat3'), t, [
+      { u: 'bot', embed: ALERT, alert: true, at: ALERT_AT + 0.06, time: 'Today at 23:51' },
+    ].filter((m) => t >= m.at), { channel: 'Kaivor', dm: true, topic: 'Direct message', input: false });
+    const c3 = document.getElementById('chat3'), q = out4(p(t, ALERT_AT, 0.24));
+    c3.style.opacity = String(q); c3.style.transform = `translateY(${(1 - q) * 30}px)`;
+  } else if (shot === 4) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    const r = out4(p(t, B(1.2), 0.36));
+    document.getElementById('rule4').style.transform = `scaleX(${r})`;
+    lines(sec, '.facts', t, B(1.6), B(0.5));
+  } else if (shot === 5) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo5');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills5', t, B(1.5));
+    rise('url5', t, B(2.3));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
