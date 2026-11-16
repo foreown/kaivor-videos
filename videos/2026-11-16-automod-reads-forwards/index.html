@@ -1,0 +1,360 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: automod reads forwarded messages (aurora-bot commit 50eec32,
+  "Filter forwarded messages, and add more Discord AutoMod rules").
+  Look: "scanner" — walnut black #1F1B16 and pale mint #DCEAE2 alternating by shot, one accent (magenta #D8418A on
+  dark, plum-magenta #A3245F on light). A big hand-drawn curl arrow for "forwarded", and a thin magenta scan line that
+  reads down through the forwarded block before the message is removed.
+  Darker Grotesque (900) for headlines, Be Vietnam Pro for the chat UI and copy, Space Mono only for the command.
+  Facts checked in aurora-bot:
+    - src/utils/forwards.ts: "A forward carries the original message as a snapshot, and its own content is empty.
+      Automod and the message logs used to read only `content`, so forwarding a scam link, an invite or a blocked word
+      slipped past every filter and left nothing in the log." scannableText() = own content + forwarded snapshot text.
+    - src/services/automod/index.ts: evaluate() reads scannableText(message) for every filter (INVITES, LINKS,
+      SUSPICIOUS, SCAM, WORDS ...). SCAM: hostname on the blocked-domain list -> detail `blocked domain: <entry>`;
+      the list is seeded with gift/nitro lookalike domains (SEED_BLOCKED_DOMAINS) and edited with `automod domains`.
+      punish(): deletes the message for every punishment, then noticeMember() posts
+      `${member}, ${MEMBER_NOTICES.SCAM}.` = "@member, that link is on the blocked list." (removes itself after 6 s).
+      With logging on, a MODERATION log embed, COLORS.warn #E5A663, author "Automod", lines **Member:**, **Filter:**
+      `SCAM`, **Action:** `DELETE`, **Channel:**, **Detail:**, **Content:** (only if the message has its own text,
+      a forward has none) and **Forwarded:** <the forwarded text>. Sent by the log webhook named config.bot.name
+      ("Kaivor").
+    - src/commands/automod/automod.ts: `automod <filter> <on|off>`, manage_guild; reply ctx.success(`Enabled the
+      \`${filter.toLowerCase()}\` filter. ${FILTER_DESCRIPTIONS[filter]}`) with FILTER_DESCRIPTIONS.SCAM =
+      "Domains on the blocked-domain list." -> "Enabled the `scam` filter. Domains on the blocked-domain list."
+      prisma/schema.prisma AutomodRule defaults: punishment DELETE, logEnabled true, so `,automod scam on` deletes and logs.
+    - success embed: src/framework/embeds.ts successEmbed, COLORS.success #5BC98C. Default prefix `,`.
+  "Pixel Den" and "Loot Hub" are made-up servers; mira, teo and gift_drop4821 are made-up users. The scam link is a
+  grey redaction bar (no real domain is shown), and so is the matched list entry in the log.
+  Sound: own sound (music/ is empty), 133.33 BPM (27 frames a beat); every shot is a whole number of beats (sound.py).
+-->
+<style>
+@font-face { font-family: 'Dg'; font-weight: 900; src: url('../../node_modules/@fontsource/darker-grotesque/files/darker-grotesque-latin-900-normal.woff2'); }
+@font-face { font-family: 'Bv'; font-weight: 400; src: url('../../node_modules/@fontsource/be-vietnam-pro/files/be-vietnam-pro-latin-400-normal.woff2'); }
+@font-face { font-family: 'Bv'; font-style: italic; font-weight: 500; src: url('../../node_modules/@fontsource/be-vietnam-pro/files/be-vietnam-pro-latin-500-italic.woff2'); }
+@font-face { font-family: 'Bv'; font-weight: 500; src: url('../../node_modules/@fontsource/be-vietnam-pro/files/be-vietnam-pro-latin-500-normal.woff2'); }
+@font-face { font-family: 'Bv'; font-weight: 600; src: url('../../node_modules/@fontsource/be-vietnam-pro/files/be-vietnam-pro-latin-600-normal.woff2'); }
+@font-face { font-family: 'Bv'; font-weight: 700; src: url('../../node_modules/@fontsource/be-vietnam-pro/files/be-vietnam-pro-latin-700-normal.woff2'); }
+@font-face { font-family: 'Bv'; font-weight: 800; src: url('../../node_modules/@fontsource/be-vietnam-pro/files/be-vietnam-pro-latin-800-normal.woff2'); }
+@font-face { font-family: 'Sm'; font-weight: 400; src: url('../../node_modules/@fontsource/space-mono/files/space-mono-latin-400-normal.woff2'); }
+@font-face { font-family: 'Sm'; font-weight: 700; src: url('../../node_modules/@fontsource/space-mono/files/space-mono-latin-700-normal.woff2'); }
+
+:root { --walnut: #1F1B16; --mint: #DCEAE2; --ink: #1C2420; --mag: #D8418A; --plum: #A3245F; --soft: #A9A296; --softLt: #56645C; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--walnut); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--walnut); color: var(--mint); }
+.light { background: var(--mint); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Dg'; font-weight: 900; letter-spacing: -0.012em; }
+.line { display: block; overflow: hidden; padding-bottom: 0.06em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Bv'; font-weight: 800; font-size: 30px; letter-spacing: 0.2em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Bv'; font-weight: 600; font-size: 42px; line-height: 1.36; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Bv'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 500; }
+.chat .top .name { font-size: 32px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 24px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 600; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 24px; padding: 14px 32px; overflow: hidden; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 34px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: baseline; gap: 14px; }
+.who { font-size: 32px; font-weight: 700; color: #F2F3F5; }
+.app { font-size: 19px; font-weight: 800; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; transform: translateY(-4px); }
+.time { font-size: 22px; color: #949BA4; font-weight: 600; }
+.text { font-size: 34px; line-height: 1.42; color: #DBDEE1; margin-top: 3px; font-weight: 500; }
+.text.cmd { font-family: 'Sm'; font-weight: 400; font-size: 34px; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 4px; font-weight: 600; }
+.text b, .embed b { color: #F2F3F5; font-weight: 800; }
+.code { font-family: 'Sm'; font-size: 0.86em; background: #1E1F22; border-radius: 4px; padding: 1px 7px; color: #DBDEE1; }
+.redact { display: inline-block; width: 330px; height: 30px; background: #4E5058; border-radius: 3px; vertical-align: -4px; }
+.redact.sm { width: 210px; height: 24px; vertical-align: -3px; }
+
+/* a forwarded message */
+.fwd { position: relative; margin-top: 8px; border-left: 6px solid #4E5058; padding: 4px 0 6px 24px; max-width: 760px; }
+.fwd .fl { font-size: 25px; font-style: italic; font-weight: 500; color: #949BA4; display: flex; align-items: center; gap: 10px; }
+.fwd .fl svg { width: 28px; height: 28px; }
+.fwd .ft { font-size: 34px; line-height: 1.42; font-weight: 500; color: #DBDEE1; margin-top: 4px; }
+.fwd .fs { font-size: 22px; font-weight: 600; color: #949BA4; margin-top: 8px; }
+.fwd .scan { position: absolute; left: -6px; right: -20px; height: 5px; background: var(--mag); }
+.fwd .tint { position: absolute; left: -6px; right: -20px; top: 0; background: rgba(216, 65, 138, 0.13); }
+.fwd .hit { box-shadow: 0 0 0 4px var(--mag); }
+
+.embed { margin-top: 10px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 28px; font-size: 32px; line-height: 1.45; max-width: 820px; font-weight: 500; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 38px; height: 38px; flex: none; margin-top: 5px; }
+.embed.log { border-left-color: #E5A663; font-size: 28px; line-height: 1.5; padding: 20px 28px 18px; }
+.embed .au { display: flex; align-items: center; gap: 12px; font-size: 26px; font-weight: 800; color: #F2F3F5; margin-bottom: 8px; }
+.embed .au i { width: 36px; height: 36px; border-radius: 50%; background: #6A5A8A; color: #fff; font-style: normal; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+.embed .ft { font-size: 21px; color: #A5A9B0; margin-top: 12px; font-weight: 600; }
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 800;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 31px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 600; }
+.typed { font-family: 'Sm'; font-weight: 400; font-size: 34px; color: #DBDEE1; line-height: 1.35; }
+.caret { display: inline-block; width: 3px; height: 36px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* the curl arrow */
+.curl { position: absolute; left: 50%; margin-left: -150px; width: 300px; height: 190px; }
+.curl path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+
+.rule { position: absolute; left: 50%; width: 640px; margin-left: -320px; height: 5px; }
+.facts { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Bv'; font-weight: 600; font-size: 44px; line-height: 1.36; }
+
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Sm'; font-weight: 700; font-size: 50px; background: var(--walnut); color: var(--mint); padding: 18px 36px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Dg'; font-weight: 900; font-size: 116px; letter-spacing: -0.01em; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (dark) -->
+<section class="shot dark" id="s0">
+  <svg class="curl" id="curl0" viewBox="0 0 300 190" style="top:190px">
+    <path id="curlp0" d="M40 160 C 40 70, 120 40, 230 60" stroke="#D8418A" stroke-width="16"/>
+    <path id="curlh0" d="M196 22 L 240 61 L 194 100" stroke="#D8418A" stroke-width="16"/>
+  </svg>
+  <div class="head" style="top:400px;font-size:150px;line-height:0.98">
+    <span class="line"><span>It came in</span></span>
+    <span class="line"><span style="color:var(--mag)">as a forward.</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:750px;height:640px"></div>
+  <div class="sub" id="sub0" style="top:1470px;color:var(--soft)">Forwards used to slip<br>past the filter.</div>
+</section>
+
+<!-- 1 turn (light) -->
+<section class="shot light" id="s1">
+  <div class="head" style="top:680px;font-size:172px;line-height:0.96">
+    <span class="line"><span>Kaivor reads</span></span>
+    <span class="line"><span style="color:var(--plum)">forwards now.</span></span>
+  </div>
+</section>
+
+<!-- 2 action (dark) -->
+<section class="shot dark" id="s2">
+  <div class="kicker" style="top:480px;color:var(--mag)">Turn it on once</div>
+  <div class="chat" id="chat2" style="top:560px;height:660px"></div>
+  <div class="sub" id="sub2" style="top:1300px;color:var(--soft)">Same filter. Now it looks<br>inside forwards too.</div>
+</section>
+
+<!-- 3 result (light) -->
+<section class="shot light" id="s3">
+  <div class="head" style="top:90px;font-size:128px;line-height:0.98">
+    <span class="line"><span>Forwarded.</span></span>
+    <span class="line"><span style="color:var(--plum)">Removed.</span></span>
+  </div>
+  <div class="chat" id="chat3" style="top:390px;height:640px"></div>
+  <div class="chat" id="log3" style="top:1070px;height:690px"></div>
+</section>
+
+<!-- 4 key fact (dark) -->
+<section class="shot dark" id="s4">
+  <div class="head" style="top:640px;font-size:150px;line-height:0.98">
+    <span class="line"><span>Checked like</span></span>
+    <span class="line"><span style="color:var(--mag)">any message.</span></span>
+  </div>
+  <div class="rule" id="rule4" style="top:1020px;background:var(--mag)"></div>
+  <div class="facts" id="facts4" style="top:1075px;color:var(--mint)">
+    <span class="line"><span>Scam links, invites, blocked words.</span></span>
+    <span class="line"><span style="color:var(--soft)">And the log shows what was forwarded.</span></span>
+  </div>
+</section>
+
+<!-- 5 end card (light) -->
+<section class="shot light" id="s5">
+  <img class="logo" id="logo5" src="../../assets/kaivor-logo.png" style="top:390px">
+  <div class="kicker" style="top:715px;color:var(--plum)">New in Kaivor</div>
+  <div class="head" style="top:780px;font-size:136px;line-height:0.98">
+    <span class="line"><span>Automod</span></span>
+    <span class="line"><span style="color:var(--plum)">reads forwards</span></span>
+  </div>
+  <div class="pills" id="pills5" style="top:1110px"><span class="pill">,automod scam on</span></div>
+  <div class="url" style="top:1290px" id="url5">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BEAT_FRAMES = 27;
+const BEAT = BEAT_FRAMES / FPS;           // 0.45 s, 133.33 BPM
+const beats = [9, 3, 8, 13, 5, 7];
+const names = ['hook', 'turn', 'action', 'result', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: 60 / BEAT, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  mira: { name: 'mira', bg: '#8A5A7C', i: 'M' },
+  teo:  { name: 'teo', bg: '#4E7A6A', i: 'T' },
+  gift: { name: 'gift_drop4821', bg: '#6A5A8A', i: 'G' },
+  bot:  { name: 'Kaivor', bot: true, app: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const md = (s) => esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<span class="code">$1</span>');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+const FWD_ICON = '<svg viewBox="0 0 24 24"><path d="M4 18c0-6 4-9 11-9" fill="none" stroke="#949BA4" stroke-width="2.4" stroke-linecap="round"/><path d="m12 5 4 4-4 4" fill="none" stroke="#949BA4" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+const FWD_TEXT = 'free steam gift, claim it before it’s gone';
+
+// scan: 0..1 progress of the scan line, hit: the link outline, null = plain
+function fwdHTML(o = {}) {
+  let scan = '';
+  if (o.scan !== undefined && o.scan > 0 && o.scan < 1) {
+    scan = `<div class="tint" style="height:${o.scan * 100}%"></div><div class="scan" style="top:calc(${o.scan * 100}% - 2px)"></div>`;
+  } else if (o.scan >= 1) {
+    scan = `<div class="tint" style="height:100%"></div>`;
+  }
+  return `<div class="fwd">${scan}<div class="fl">${FWD_ICON}Forwarded</div>` +
+    `<div class="ft">${esc(FWD_TEXT)}<br><span class="redact${o.hit ? ' hit' : ''}"></span></div>` +
+    `<div class="fs"># deals · Loot Hub · Yesterday</div></div>`;
+}
+
+function msgHTML(m) {
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${md(m.text)}</div>`;
+  if (m.fwd) content += m.fwd;
+  if (m.embed) content += `<div class="embed${m.log ? ' log' : ''}">${m.embed}</div>`;
+  const style = m.style ? ` style="${m.style}"` : '';
+  return `<div class="msg"${style}>${av}<div class="body"><div class="meta"><span class="who">${u.name}</span>${app}<span class="time">${m.time}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  let input = '';
+  if (opts.input !== false) {
+    const typed = opts.typed || '';
+    input = `<div class="input"><span class="plus">+</span>${typed
+      ? `<span class="typed">${esc(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+      : `<span class="ph">Message #${opts.channel}</span>`}</div>`;
+  }
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, 0.18));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.34));
+    s.style.transform = `translateY(${(1 - e) * 112}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.32));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+function drawPath(id, t, a, d) {
+  const el = document.getElementById(id), len = el.getTotalLength();
+  el.style.strokeDasharray = `${len}`;
+  el.style.strokeDashoffset = `${len * (1 - out4(p(t, a, d)))}`;
+}
+
+// ---- Kaivor's lines, copied from aurora-bot ----
+const CMD = ',automod scam on';
+const DONE = `<div class="st">${CHECK}<div>${md('Enabled the `scam` filter. Domains on the blocked-domain list.')}</div></div>`;
+const NOTICE = '<span class="mention">@gift_drop4821</span>, that link is on the blocked list.';
+const LOG =
+  `<div class="au"><i>G</i>Automod</div>` +
+  `<div><b>Member:</b> <span class="mention">@gift_drop4821</span> <span class="code">gift_drop4821</span></div>` +
+  `<div><b>Filter:</b> <span class="code">SCAM</span></div>` +
+  `<div><b>Action:</b> <span class="code">DELETE</span></div>` +
+  `<div><b>Channel:</b> <span class="mention">#general</span></div>` +
+  `<div><b>Detail:</b> blocked domain: <span class="redact sm"></span></div>` +
+  `<div><b>Forwarded:</b><br>${esc(FWD_TEXT)}<br><span class="redact sm"></span></div>` +
+  `<div class="ft">Today at 20:14</div>`;
+
+// ---- timings (seconds within the shot) ----
+const HOOK_FWD = B(1.5);
+const R_FWD = B(1), R_SCAN = B(2), R_SCAN_D = B(1), R_HIT = B(3), R_DEL = B(4), R_NOTE = B(4.5), R_LOG = B(6.5);
+window.T = { HOOK_FWD, R_FWD, R_SCAN, R_HIT, R_DEL, R_NOTE, R_LOG };
+
+const S = [...document.querySelectorAll('.shot')];
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    drawPath('curlp0', t, 0, 0.32);
+    drawPath('curlh0', t, 0.22, 0.16);
+    lines(sec, '.head', t, 0.05, 0.14);
+    renderChat(document.getElementById('chat0'), t, [
+      { u: 'mira', text: 'anyone up for a round later?', at: -1, time: 'Today at 20:11' },
+      { u: 'teo', text: 'after dinner, sure', at: -1, time: 'Today at 20:12' },
+      { u: 'gift', fwd: fwdHTML(), at: HOOK_FWD, time: 'Today at 20:13' },
+    ], { channel: 'general', topic: 'Pixel Den', input: false });
+    rise('sub0', t, B(5));
+  } else if (shot === 1) {
+    lines(sec, '.head', t, 0.0, 0.05);
+  } else if (shot === 2) {
+    const send = B(3.6), rep = B(4.4);
+    const msgs = [
+      { u: 'teo', text: 'that gift link got past everything', at: -1, time: 'Today at 20:13' },
+      { u: 'mira', cmd: true, html: esc(CMD), at: send, time: 'Today at 20:13' },
+      { u: 'bot', embed: DONE, at: rep, time: 'Today at 20:13' },
+    ];
+    let typed = '', caret = false;
+    if (t >= B(0.4) && t < send) { typed = CMD.slice(0, Math.ceil(CMD.length * inout(p(t, B(0.4), B(2.8))))); caret = true; }
+    renderChat(document.getElementById('chat2'), t, msgs, { channel: 'staff', topic: 'mods only', typed, caret });
+    rise('sub2', t, B(5.4));
+  } else if (shot === 3) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    // the forward is read by the scan line, outlined, then removed; Kaivor's notice takes its place
+    const scan = t < R_SCAN ? undefined : p(t, R_SCAN, R_SCAN_D);
+    const del = out4(p(t, R_DEL, 0.22));
+    const msgs = [
+      { u: 'mira', text: 'anyone up for a round later?', at: -1, time: 'Today at 20:11' },
+      { u: 'teo', text: 'after dinner, sure', at: -1, time: 'Today at 20:12' },
+    ];
+    if (t < R_DEL + 0.22) {
+      msgs.push({ u: 'gift', fwd: fwdHTML({ scan, hit: t >= R_HIT }), at: R_FWD, time: 'Today at 20:14',
+        style: t >= R_DEL ? `opacity:${1 - del};max-height:${(1 - del) * 420}px;padding-top:${(1 - del) * 14}px;padding-bottom:${(1 - del) * 14}px` : '' });
+    }
+    msgs.push({ u: 'bot', html: NOTICE, at: R_NOTE, time: 'Today at 20:14' });
+    renderChat(document.getElementById('chat3'), t, msgs, { channel: 'general', topic: 'Pixel Den', input: false });
+    const lg = document.getElementById('log3');
+    renderChat(lg, t, [{ u: 'bot', embed: LOG, log: true, at: R_LOG + 0.04, time: 'Today at 20:14' }],
+      { channel: 'mod-log', topic: 'Pixel Den', input: false });
+    const q = out4(p(t, R_LOG, 0.26));
+    lg.style.opacity = String(q); lg.style.transform = `translateY(${(1 - q) * 30}px)`;
+  } else if (shot === 4) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    const r = out4(p(t, B(1.3), 0.34));
+    document.getElementById('rule4').style.transform = `scaleX(${r})`;
+    lines(sec, '.facts', t, B(1.7), B(0.9));
+  } else if (shot === 5) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo5');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills5', t, B(1.5));
+    rise('url5', t, B(2.3));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>

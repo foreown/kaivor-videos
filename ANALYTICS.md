@@ -2,6 +2,18 @@
 
 One entry per video, newest first (VIDEO_RULES.md section 9). Numbers come from Metricool (brand 7853528) and are a snapshot from that day.
 
+## 2026-11-16
+
+**Data:** TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. **The 11-13, 11-14 and 11-15 posts never went out**: all six show ERROR "You have reached your Metricool account limit.", so the newest TikTok with numbers is still 11-12 and there is no data on the security hooks.
+
+**What changed since 11-15:** almost nothing. Repeating events (11-12) has crept to **314** views, 5 likes, 1 share and stays the best November video; `/server setup` (26 Oct, 386 views, 6 likes) is still the best in the 30-day window. The November band is 274–314.
+
+**What seems to work:** unchanged: one concrete, relatable moment that went wrong, where Kaivor does the work, told in second person. Big, high-stakes results still sit above the band of everyday features.
+
+**Signal strength: medium for "high stakes beats small conveniences", weak for everything else**, and the security test is now three days overdue because nothing has published.
+
+**What today's video does with it:** picks automod reading forwarded messages (security, a scam that used to get through): a "free steam gift" link arrives as a forward, which filters used to miss, and with `,automod scam on` Kaivor removes it and logs what was forwarded. Opens on the concrete moment ("It came in as a forward."), keeps the problem → one command → undone shape, and keeps the caption in second person.
+
 ## 2026-11-15
 
 **Data:** TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. **The 11-13 (raid mode) and 11-14 (purge user) posts never went out**: all four show ERROR "You have reached your Metricool account limit.", so there is still no data on the security hooks.
