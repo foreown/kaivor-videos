@@ -2,6 +2,18 @@
 
 One entry per video, newest first (VIDEO_RULES.md section 9). Numbers come from Metricool (brand 7853528) and are a snapshot from that day.
 
+## 2026-11-17
+
+**Data:** same as yesterday. TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. **The 11-16 posts (automod reads forwards) also never went out**: both show ERROR "You have reached your Metricool account limit.", so nothing has published since 11-12 and the export is unchanged.
+
+**What changed since 11-16:** nothing. Repeating events (11-12) stays at **314** views, 5 likes, 1 share and is still the best November video; `/server setup` (26 Oct, 386 views, 6 likes) is still the best in the 30-day window. The November band is 274–314.
+
+**What seems to work:** unchanged: one concrete, relatable moment that went wrong, told in second person, where Kaivor does the work. The best November hook named a social miss ("game night was yesterday. nobody made the event.").
+
+**Signal strength: weak.** No new data for five days, and the security test from 11-13 to 11-16 has still not been seen by anyone.
+
+**What today's video does with it:** picks birthdays, a member-facing feature with the same shape as the best November video: a social miss told as one concrete moment ("Her birthday was yesterday. Nobody in the server knew."), then two staff commands and one member command, then Kaivor announcing it at midnight with the role for the day. The caption mirrors the repeating-events hook.
+
 ## 2026-11-16
 
 **Data:** TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. **The 11-13, 11-14 and 11-15 posts never went out**: all six show ERROR "You have reached your Metricool account limit.", so the newest TikTok with numbers is still 11-12 and there is no data on the security hooks.

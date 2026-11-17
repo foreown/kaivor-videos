@@ -1,0 +1,382 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: birthdays (aurora-bot commit 52ba171, "Birthdays: save a day and month, get announced and a role for
+  the day").
+  Look: "cake & candle" — cocoa #2A1A15 and lavender milk #E5E0EF alternating by shot, one accent (candle amber
+  #F0A23A on dark, burnt amber #A35E0B on light). A single flat drawn candle that lights on the turn, and a tear-off
+  day calendar whose "13" page tears away to "14" at midnight.
+  Fraunces (700/800) for headlines, Karla for the chat UI and copy, Victor Mono only for commands.
+  Facts checked in aurora-bot:
+    - src/commands/community/birthdays.ts:
+        `birthday set <date>` (examples 'birthday set 14 March', 'birthday set 14/03'):
+          ctx.success(`Saved **${formatBirthday(month, day)}**.`) -> "Saved **14 March**." (with announcements on,
+          nothing is appended).
+        `birthday channel <channel|off>` (manage_guild):
+          ctx.success(`Birthdays will be announced in ${channel}, in the server’s time zone (\`settings timezone\`).`)
+        `birthday role <role|off>` (manage_guild, bot manage_roles):
+          ctx.success(`${role} is given for 24 hours on each birthday.`)
+    - src/services/birthdays/index.ts: DEFAULT_BIRTHDAY_MESSAGE = 'Happy birthday, {user.mention}! 🎂' sent as a plain
+      message in the chosen channel; ROLE_DURATION_MS = 24 h, role removed with reason "Birthday is over"; the date is
+      the server's local date (settings timezone); the worker runs every 10 minutes (src/workers/register.ts), so the
+      announcement lands just after midnight (shown at 00:04). Day and month only: "The year is never asked for or
+      stored." (commit message, schema has month/day only).
+    - success embed: src/framework/embeds.ts successEmbed, COLORS.success #5BC98C, icon then sentence. Prefix `,`.
+  "Cosy Corner" is a made-up server; mira, teo and juno are made-up users. The Birthday role is made up.
+  Sound: own sound (music/ is empty), 128.57 BPM (28 frames a beat); every shot is a whole number of beats (sound.py).
+-->
+<style>
+@font-face { font-family: 'Fr'; font-weight: 700; src: url('../../node_modules/@fontsource/fraunces/files/fraunces-latin-700-normal.woff2'); }
+@font-face { font-family: 'Fr'; font-weight: 800; src: url('../../node_modules/@fontsource/fraunces/files/fraunces-latin-800-normal.woff2'); }
+@font-face { font-family: 'Fr'; font-weight: 600; font-style: italic; src: url('../../node_modules/@fontsource/fraunces/files/fraunces-latin-600-italic.woff2'); }
+@font-face { font-family: 'Ka'; font-weight: 400; src: url('../../node_modules/@fontsource/karla/files/karla-latin-400-normal.woff2'); }
+@font-face { font-family: 'Ka'; font-weight: 500; src: url('../../node_modules/@fontsource/karla/files/karla-latin-500-normal.woff2'); }
+@font-face { font-family: 'Ka'; font-weight: 600; src: url('../../node_modules/@fontsource/karla/files/karla-latin-600-normal.woff2'); }
+@font-face { font-family: 'Ka'; font-weight: 700; src: url('../../node_modules/@fontsource/karla/files/karla-latin-700-normal.woff2'); }
+@font-face { font-family: 'Ka'; font-weight: 800; src: url('../../node_modules/@fontsource/karla/files/karla-latin-800-normal.woff2'); }
+@font-face { font-family: 'Vm'; font-weight: 500; src: url('../../node_modules/@fontsource/victor-mono/files/victor-mono-latin-500-normal.woff2'); }
+@font-face { font-family: 'Vm'; font-weight: 700; src: url('../../node_modules/@fontsource/victor-mono/files/victor-mono-latin-700-normal.woff2'); }
+
+:root { --cocoa: #2A1A15; --lav: #E5E0EF; --ink: #231A24; --amb: #F0A23A; --burnt: #A35E0B; --soft: #B5A49A; --softLt: #625A6E; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--cocoa); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--cocoa); color: var(--lav); }
+.light { background: var(--lav); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Fr'; font-weight: 800; letter-spacing: -0.02em; }
+.line { display: block; overflow: hidden; padding-bottom: 0.08em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Ka'; font-weight: 800; font-size: 32px; letter-spacing: 0.18em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Ka'; font-weight: 600; font-size: 46px; line-height: 1.3; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Ka'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 500; }
+.chat .top .name { font-size: 33px; font-weight: 800; color: #F2F3F5; }
+.chat .top .topic { font-size: 25px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 600; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 24px; padding: 14px 32px; overflow: hidden; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 34px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: baseline; gap: 14px; }
+.who { font-size: 33px; font-weight: 800; color: #F2F3F5; }
+.app { font-size: 19px; font-weight: 800; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; transform: translateY(-4px); }
+.time { font-size: 23px; color: #949BA4; font-weight: 600; }
+.text { font-size: 36px; line-height: 1.38; color: #DBDEE1; margin-top: 3px; font-weight: 500; }
+.text.cmd { font-family: 'Vm'; font-weight: 500; font-size: 33px; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 4px; font-weight: 700; font-family: 'Ka'; }
+.rolem { background: rgba(240, 162, 58, 0.18); color: #F3B866; border-radius: 4px; padding: 0 4px; font-weight: 700; font-family: 'Ka'; }
+.text b, .embed b { color: #F2F3F5; font-weight: 800; }
+.code { font-family: 'Vm'; font-size: 0.84em; background: #1E1F22; border-radius: 4px; padding: 1px 7px; color: #DBDEE1; }
+.emo { font-family: 'Noto Color Emoji'; font-size: 0.95em; }
+
+.embed { margin-top: 10px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 28px; font-size: 33px; line-height: 1.42; max-width: 820px; font-weight: 500; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 38px; height: 38px; flex: none; margin-top: 4px; }
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 800;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 32px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 600; }
+.typed { font-family: 'Vm'; font-weight: 500; font-size: 33px; color: #DBDEE1; line-height: 1.35; }
+.caret { display: inline-block; width: 3px; height: 36px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* member card */
+.card { position: absolute; left: 60px; width: 960px; background: #232428; border-radius: 8px; font-family: 'Ka'; color: #DBDEE1; padding: 34px 40px; display: flex; gap: 32px; align-items: center; }
+.card .av { width: 128px; height: 128px; font-size: 54px; }
+.card .nm { font-size: 44px; font-weight: 800; color: #F2F3F5; }
+.card .lb { font-size: 22px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: #B5BAC1; margin: 12px 0 12px; }
+.card .roles { display: flex; gap: 14px; }
+.rp { display: inline-flex; align-items: center; gap: 12px; background: #2E3035; border-radius: 6px; padding: 8px 18px 8px 14px; font-size: 30px; font-weight: 700; color: #DBDEE1; }
+.rp i { width: 20px; height: 20px; border-radius: 50%; display: block; }
+
+/* tear-off day calendar */
+.cal { position: absolute; left: 50%; width: 400px; margin-left: -200px; height: 360px; }
+.cal .band { position: absolute; left: 0; right: 0; top: 0; height: 92px; background: var(--amb); color: var(--cocoa);
+             font-family: 'Ka'; font-weight: 800; font-size: 38px; letter-spacing: 0.24em; display: flex; align-items: center; justify-content: center; padding-left: 0.24em; z-index: 3; }
+.cal .rings { position: absolute; top: -18px; left: 0; right: 0; display: flex; justify-content: center; gap: 150px; z-index: 4; }
+.cal .rings i { width: 22px; height: 46px; border-radius: 11px; background: var(--lav); display: block; border: 5px solid var(--cocoa); }
+.cal .page { position: absolute; left: 0; right: 0; top: 92px; height: 268px; background: var(--lav); color: var(--ink);
+             font-family: 'Fr'; font-weight: 800; font-size: 210px; line-height: 268px; text-align: center; letter-spacing: -0.03em; transform-origin: 50% 0; }
+
+.candle { position: absolute; left: 50%; width: 120px; margin-left: -60px; height: 300px; }
+
+.rule { position: absolute; left: 50%; width: 560px; margin-left: -280px; height: 6px; }
+.facts { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ka'; font-weight: 600; font-size: 46px; line-height: 1.34; }
+
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Vm'; font-weight: 700; font-size: 50px; background: var(--lav); color: var(--cocoa); padding: 18px 36px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Fr'; font-weight: 800; font-size: 112px; letter-spacing: -0.02em; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (dark) -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:250px;font-size:128px;line-height:1.0">
+    <span class="line"><span>Her birthday</span></span>
+    <span class="line"><span style="color:var(--amb)">was yesterday.</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:600px;height:640px"></div>
+  <div class="sub" id="sub0" style="top:1320px;color:var(--soft)">Nobody in the server knew.</div>
+</section>
+
+<!-- 1 turn (light) -->
+<section class="shot light" id="s1">
+  <svg class="candle" id="candle1" viewBox="0 0 120 300" style="top:420px">
+    <path id="flame1" d="M60 18 C 78 46, 84 66, 72 84 C 66 93, 54 93, 48 84 C 36 66, 44 46, 60 18 Z" fill="#A35E0B"/>
+    <rect x="57" y="92" width="6" height="22" fill="#231A24"/>
+    <rect x="34" y="114" width="52" height="186" fill="#231A24"/>
+    <rect x="34" y="150" width="52" height="16" fill="#E5E0EF"/>
+    <rect x="34" y="200" width="52" height="16" fill="#E5E0EF"/>
+    <rect x="34" y="250" width="52" height="16" fill="#E5E0EF"/>
+  </svg>
+  <div class="head" style="top:800px;font-size:164px;line-height:0.98">
+    <span class="line"><span>Save it once.</span></span>
+    <span class="line"><span style="color:var(--burnt)">Kaivor</span></span>
+    <span class="line"><span style="color:var(--burnt)">remembers.</span></span>
+  </div>
+</section>
+
+<!-- 2 setup (dark) -->
+<section class="shot dark" id="s2">
+  <div class="kicker" style="top:390px;color:var(--amb)">Staff set it up once</div>
+  <div class="chat" id="chat2" style="top:460px;height:960px"></div>
+  <div class="sub" id="sub2" style="top:1490px;color:var(--soft)">A channel for the shout-out,<br>a role for the day.</div>
+</section>
+
+<!-- 3 member (light) -->
+<section class="shot light" id="s3">
+  <div class="head" style="top:340px;font-size:136px;line-height:1.0">
+    <span class="line"><span>Members save</span></span>
+    <span class="line"><span style="color:var(--burnt)">their own.</span></span>
+  </div>
+  <div class="chat" id="chat3" style="top:690px;height:620px"></div>
+  <div class="sub" id="sub3" style="top:1380px;color:var(--softLt)">One line, and it’s saved.</div>
+</section>
+
+<!-- 4 result (dark) -->
+<section class="shot dark" id="s4">
+  <div class="cal" id="cal4" style="top:170px">
+    <div class="rings"><i></i><i></i></div>
+    <div class="band">MARCH</div>
+    <div class="page" id="p14">14</div>
+    <div class="page" id="p13">13</div>
+  </div>
+  <div class="kicker" id="mid4" style="top:560px;color:var(--soft);letter-spacing:0.14em">Midnight, server time</div>
+  <div class="chat" id="chat4" style="top:650px;height:690px"></div>
+  <div class="card" id="card4" style="top:1390px">
+    <div class="av" style="background:#8A5A7C">M</div>
+    <div>
+      <div class="nm">mira</div>
+      <div class="lb">Roles</div>
+      <div class="roles" id="roles4"><span class="rp"><i style="background:#949BA4"></i>Member</span><span class="rp" id="bdrole"><i style="background:#F0A23A"></i>Birthday</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 key fact (light) -->
+<section class="shot light" id="s5">
+  <div class="head" style="top:660px;font-size:118px;line-height:1.0">
+    <span class="line"><span>Day and month.</span></span>
+    <span class="line"><span style="color:var(--burnt)">Never the year.</span></span>
+  </div>
+  <div class="rule" id="rule5" style="top:960px;background:var(--burnt)"></div>
+  <div class="facts" id="facts5" style="top:1010px;color:var(--ink)">
+    <span class="line"><span>The role comes off after 24 hours.</span></span>
+  </div>
+</section>
+
+<!-- 6 end card (dark) -->
+<section class="shot dark" id="s6">
+  <img class="logo" id="logo6" src="../../assets/kaivor-logo.png" style="top:400px">
+  <div class="kicker" style="top:730px;color:var(--amb)">New in Kaivor</div>
+  <div class="head" style="top:790px;font-size:176px;line-height:1.0">
+    <span class="line"><span>Birthdays</span></span>
+  </div>
+  <div class="pills" id="pills6" style="top:1040px"><span class="pill">,birthday set 14 March</span></div>
+  <div class="url" style="top:1210px;color:var(--lav)" id="url6">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BEAT_FRAMES = 28;
+const BEAT = BEAT_FRAMES / FPS;           // 0.4667 s, 128.57 BPM
+const beats = [8, 3, 9, 6, 10, 4, 7];
+const names = ['hook', 'turn', 'setup', 'member', 'result', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: 60 / BEAT, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT_FRAMES / FPS })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  mira: { name: 'mira', bg: '#8A5A7C', i: 'M' },
+  teo:  { name: 'teo', bg: '#4E7A6A', i: 'T' },
+  juno: { name: 'juno', bg: '#5A6A9A', i: 'J' },
+  bot:  { name: 'Kaivor', bot: true, app: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const md = (s) => esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<span class="code">$1</span>');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+const ok = (html) => `<div class="st">${CHECK}<div>${html}</div></div>`;
+
+function msgHTML(m) {
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${md(m.text)}</div>`;
+  if (m.embed) content += `<div class="embed">${m.embed}</div>`;
+  return `<div class="msg">${av}<div class="body"><div class="meta"><span class="who">${u.name}</span>${app}<span class="time">${m.time}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  let input = '';
+  if (opts.input !== false) {
+    const typed = opts.typed || '';
+    input = `<div class="input"><span class="plus">+</span>${typed
+      ? `<span class="typed">${esc(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+      : `<span class="ph">Message #${opts.channel}</span>`}</div>`;
+  }
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, 0.18));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.34));
+    s.style.transform = `translateY(${(1 - e) * 112}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.32));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+function typing(cmd, t, a, d) {
+  return cmd.slice(0, Math.ceil(cmd.length * inout(p(t, a, d))));
+}
+
+// ---- Kaivor's lines, copied from aurora-bot (src/commands/community/birthdays.ts, services/birthdays) ----
+const CMD_CH = ',birthday channel #general';
+const CMD_ROLE = ',birthday role @Birthday';
+const CMD_SET = ',birthday set 14 March';
+const R_CH = ok('Birthdays will be announced in <span class="mention">#general</span>, in the server’s time zone (<span class="code">settings timezone</span>).');
+const RE_ROLE = ok('<span class="rolem">@Birthday</span> is given for 24 hours on each birthday.');
+const R_SET = ok(md('Saved **14 March**.'));
+const HB = 'Happy birthday, <span class="mention">@mira</span>! <span class="emo">🎂</span>';
+
+// ---- timings (seconds within the shot), on the beat grid; sound.py uses the same beats ----
+const H_TEO = B(1), H_MIRA = B(2.5), H_JUNO = B(4), H_SUB = B(5.5);
+const S_T1 = B(0.25), S_SEND1 = B(1.75), S_REP1 = B(2.25), S_T2 = B(3), S_SEND2 = B(4.5), S_REP2 = B(5), S_SUB = B(6.5);
+const M_T = B(0.5), M_SEND = B(2.5), M_REP = B(3), M_SUB = B(4);
+const R_TEAR = B(1), R_HB = B(2), R_ROLE = B(2.5), R_TEO = B(4), R_JUNO = B(6);
+window.T = { H_TEO, H_MIRA, H_JUNO, S_SEND1, S_REP1, S_SEND2, S_REP2, M_SEND, M_REP, R_TEAR, R_HB, R_ROLE, R_TEO, R_JUNO };
+
+const S = [...document.querySelectorAll('.shot')];
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, '.head', t, 0.04, 0.14);
+    renderChat(document.getElementById('chat0'), t, [
+      { u: 'juno', text: 'who’s on tonight?', at: -1, time: 'Today at 19:02' },
+      { u: 'teo', text: 'wait. it was your birthday yesterday??', at: H_TEO, time: 'Today at 19:04' },
+      { u: 'mira', text: 'haha yeah. it’s fine', at: H_MIRA, time: 'Today at 19:04' },
+      { u: 'juno', text: 'nobody said anything…', at: H_JUNO, time: 'Today at 19:05' },
+    ], { channel: 'general', topic: 'Cosy Corner', input: false });
+    rise('sub0', t, H_SUB);
+  } else if (shot === 1) {
+    lines(sec, '.head', t, 0.0, 0.06);
+    const c = out4(p(t, 0, 0.3));
+    const candle = document.getElementById('candle1');
+    candle.style.opacity = String(c); candle.style.transform = `translateY(${(1 - c) * 30}px)`;
+    const fl = out4(p(t, B(0.75), 0.2));
+    const flame = document.getElementById('flame1');
+    flame.style.transformOrigin = '60px 92px';
+    flame.style.transform = `scale(${fl})`;
+  } else if (shot === 2) {
+    const msgs = [
+      { u: 'juno', cmd: true, html: esc(CMD_CH).replace('#general', '<span class="mention">#general</span>'), at: S_SEND1, time: 'Today at 19:06' },
+      { u: 'bot', embed: R_CH, at: S_REP1, time: 'Today at 19:06' },
+      { u: 'juno', cmd: true, html: esc(CMD_ROLE).replace('@Birthday', '<span class="rolem">@Birthday</span>'), at: S_SEND2, time: 'Today at 19:06' },
+      { u: 'bot', embed: RE_ROLE, at: S_REP2, time: 'Today at 19:06' },
+    ];
+    let typed = '', caret = false;
+    if (t >= S_T1 && t < S_SEND1) { typed = typing(CMD_CH, t, S_T1, S_SEND1 - S_T1 - 0.08); caret = true; }
+    else if (t >= S_T2 && t < S_SEND2) { typed = typing(CMD_ROLE, t, S_T2, S_SEND2 - S_T2 - 0.08); caret = true; }
+    renderChat(document.getElementById('chat2'), t, msgs, { channel: 'staff', topic: 'Cosy Corner', typed, caret });
+    rise('sub2', t, S_SUB);
+  } else if (shot === 3) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    const msgs = [
+      { u: 'teo', text: 'ok everyone save yours', at: -1, time: 'Today at 19:08' },
+      { u: 'mira', cmd: true, html: esc(CMD_SET), at: M_SEND, time: 'Today at 19:08' },
+      { u: 'bot', embed: R_SET, at: M_REP, time: 'Today at 19:08' },
+    ];
+    let typed = '', caret = false;
+    if (t >= M_T && t < M_SEND) { typed = typing(CMD_SET, t, M_T, M_SEND - M_T - 0.08); caret = true; }
+    renderChat(document.getElementById('chat3'), t, msgs, { channel: 'general', topic: 'Cosy Corner', typed, caret });
+    rise('sub3', t, M_SUB);
+  } else if (shot === 4) {
+    // the 13 page tears away upward and falls, revealing 14
+    const tear = p(t, R_TEAR, 0.42);
+    const p13 = document.getElementById('p13');
+    if (tear <= 0) { p13.style.display = 'block'; p13.style.transform = 'none'; p13.style.opacity = '1'; }
+    else if (tear >= 1) { p13.style.display = 'none'; }
+    else {
+      const e = out4(tear);
+      p13.style.display = 'block';
+      p13.style.transform = `translate(${e * 60}px, ${-e * 40 + tear * tear * 520}px) rotate(${e * 14}deg)`;
+      p13.style.opacity = String(1 - tear);
+    }
+    rise('mid4', t, R_TEAR + 0.1);
+    renderChat(document.getElementById('chat4'), t, [
+      { u: 'teo', text: 'night all', at: -1, time: 'Yesterday at 23:41' },
+      { u: 'bot', html: HB, at: R_HB, time: 'Today at 00:04' },
+      { u: 'teo', text: 'HAPPY BIRTHDAY MIRA', at: R_TEO, time: 'Today at 00:05' },
+      { u: 'juno', text: 'not missing it this year', at: R_JUNO, time: 'Today at 00:06' },
+    ], { channel: 'general', topic: 'Cosy Corner', input: false });
+    const r = out4(p(t, R_ROLE, 0.22));
+    const role = document.getElementById('bdrole');
+    role.style.opacity = String(r);
+    role.style.transform = `translateY(${(1 - r) * 16}px)`;
+    role.style.boxShadow = r > 0 ? `0 0 0 ${3 * (1 - p(t, R_ROLE + 0.3, 0.5))}px #F0A23A` : 'none';
+  } else if (shot === 5) {
+    lines(sec, '.head', t, 0.0, 0.1);
+    const r = out4(p(t, B(1.25), 0.34));
+    document.getElementById('rule5').style.transform = `scaleX(${r})`;
+    lines(sec, '.facts', t, B(1.5), 0);
+  } else if (shot === 6) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo6');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills6', t, B(1.5));
+    rise('url6', t, B(2.5));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
