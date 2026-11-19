@@ -2,6 +2,18 @@
 
 One entry per video, newest first (VIDEO_RULES.md section 9). Numbers come from Metricool (brand 7853528) and are a snapshot from that day.
 
+## 2026-11-19
+
+**Data:** same as yesterday. TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. **The 11-18 posts (suggestions) also never went out**: both show ERROR "You have reached your Metricool account limit.", so nothing has published since 11-12 and the export is unchanged.
+
+**What changed since 11-18:** nothing. Repeating events (11-12) stays at **316** views, 5 likes, 1 share and is still the best November video; `/server setup` (26 Oct, 386 views, 6 likes) is still the best in the 30-day window. The November band is 274–316.
+
+**What seems to work:** unchanged: one concrete, relatable moment that went wrong, told plainly, where Kaivor does the work. The best November hook named a social miss ("game night was yesterday. nobody made the event.").
+
+**Signal strength: weak.** No new data for seven days; the last six videos have not been seen by anyone.
+
+**What today's video does with it:** the newest commit (`d62b1be`, public access) is a developer-only switch with nothing to show members, so it picks applications (27 Oct, not made into a video yet): a social miss told as one concrete moment ("Asked to be a mod. Never heard back.": three unanswered DMs over a week), then one staff command, a member pressing Apply and answering in a pop-up, and staff approving it so the applicant gets a DM. The caption opens on that miss.
+
 ## 2026-11-18
 
 **Data:** same as yesterday. TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. **The 11-17 posts (birthdays) also never went out**: both show ERROR "You have reached your Metricool account limit.", so nothing has published since 11-12 and the export is unchanged.

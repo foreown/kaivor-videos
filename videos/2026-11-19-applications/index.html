@@ -1,0 +1,439 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: applications (aurora-bot commit 4060a7e, "Applications: forms with a review queue and a role on approval").
+  Look: "approval form" — ice #E3EAF0 and mulberry #2A1024 alternating by shot, one accent (emerald #3DBB86 on dark,
+  deep emerald #0F7048 on light). A big checkbox whose tick draws in on the turn, form-field underlines.
+  DM Serif Display (italic for the second line) for headlines, Work Sans for the chat UI and copy, Roboto Mono only
+  for commands.
+  Facts checked in aurora-bot:
+    - src/commands/community/applications.ts:
+        `application create <name> <question> | [question …]` (Manage Server; example
+          'application create staff Why do you want to help? | How active are you? | Your timezone?'):
+          ctx.success(`Made the **staff** form. Next: \`application channel staff #reviews\`, then \`application panel staff\`.`)
+        `application panel <form> [channel]`: embed (COLORS.default, #658A95 from DEFAULT_EMBED_COLOR) titled
+          "Apply: staff", description "1. question" per line, one primary button "Apply".
+        `application role <form> <role|off>`: approving gives the role.
+    - src/services/applications/index.ts: MAX_QUESTIONS = 5 (a Discord pop-up holds five fields);
+        applyModal title "Apply: staff", one paragraph field per question, labelled with the question;
+        reviewEmbed: author "Application: staff", description "From <@user> (`id`)", one field per question
+          (name = question, value = answer); colour default while pending, COLORS.success #5BC98C once approved,
+          plus a field "Approved" = "By <@reviewer>"; reviewControls: Approve (success) and Deny (danger), none
+          once decided.
+        decideApplication: gives the form's role, repaints the review message and DMs the applicant:
+          "Your **staff** application in **Pixel Harbor** was approved." (and "Reason: …" when denied with one).
+        canReviewApplications: Manage Server or the form's review role.
+    - src/events/interactions/modals/application.ts: after submit (only you can see)
+        "Application sent. You will get a DM when it is decided."; deny asks for a reason first.
+    - src/events/interactions/buttons/application.ts: Approve replies (only you can see) "Application approved.";
+        Deny opens a pop-up "Deny application" with "Reason (sent to the applicant)", optional.
+    - success embed: src/framework/embeds.ts successEmbed, COLORS.success #5BC98C, icon then sentence. Prefix `,`.
+  "Pixel Harbor" is a made-up server; mira, teo, juno and ash are made-up users.
+  Sound: own sound (music/ is empty), 90 BPM (40 frames a beat); every shot is a whole number of beats (sound.py).
+-->
+<style>
+@font-face { font-family: 'Ds'; font-weight: 400; src: url('../../node_modules/@fontsource/dm-serif-display/files/dm-serif-display-latin-400-normal.woff2'); }
+@font-face { font-family: 'Ds'; font-weight: 400; font-style: italic; src: url('../../node_modules/@fontsource/dm-serif-display/files/dm-serif-display-latin-400-italic.woff2'); }
+@font-face { font-family: 'Ws'; font-weight: 500; src: url('../../node_modules/@fontsource/work-sans/files/work-sans-latin-500-normal.woff2'); }
+@font-face { font-family: 'Ws'; font-weight: 600; src: url('../../node_modules/@fontsource/work-sans/files/work-sans-latin-600-normal.woff2'); }
+@font-face { font-family: 'Ws'; font-weight: 700; src: url('../../node_modules/@fontsource/work-sans/files/work-sans-latin-700-normal.woff2'); }
+@font-face { font-family: 'Ws'; font-weight: 800; src: url('../../node_modules/@fontsource/work-sans/files/work-sans-latin-800-normal.woff2'); }
+@font-face { font-family: 'Rm'; font-weight: 500; src: url('../../node_modules/@fontsource/roboto-mono/files/roboto-mono-latin-500-normal.woff2'); }
+@font-face { font-family: 'Rm'; font-weight: 600; src: url('../../node_modules/@fontsource/roboto-mono/files/roboto-mono-latin-600-normal.woff2'); }
+
+:root { --mul: #2A1024; --ice: #E3EAF0; --ink: #240E1F; --em: #3DBB86; --emd: #0F7048; --soft: #C7AFC0; --softLt: #5E5662; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--mul); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--mul); color: var(--ice); }
+.light { background: var(--ice); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ds'; font-weight: 400; letter-spacing: -0.01em; }
+.head i { font-style: italic; }
+.line { display: block; overflow: hidden; padding-bottom: 0.2em; margin-bottom: -0.12em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Ws'; font-weight: 800; font-size: 32px; letter-spacing: 0.18em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; padding-left: 0.18em; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Ws'; font-weight: 600; font-size: 46px; line-height: 1.3; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Ws'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 500; }
+.chat .top .at { font-size: 40px; color: #80848E; font-weight: 600; }
+.chat .top .name { font-size: 33px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 25px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 600; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 24px; padding: 14px 32px; overflow: hidden; }
+.msg.eph { background: rgba(88, 101, 242, 0.08); border-left: 4px solid #5865F2; padding-left: 28px; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 34px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: baseline; gap: 14px; }
+.who { font-size: 33px; font-weight: 700; color: #F2F3F5; }
+.app { font-size: 19px; font-weight: 800; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; transform: translateY(-4px); }
+.time { font-size: 23px; color: #949BA4; font-weight: 600; }
+.text { font-size: 36px; line-height: 1.38; color: #DBDEE1; margin-top: 3px; font-weight: 500; }
+.text.cmd { font-family: 'Rm'; font-weight: 500; font-size: 30px; line-height: 1.45; }
+.text.big { font-size: 40px; }
+.note { font-size: 23px; color: #949BA4; font-weight: 600; margin-top: 6px; }
+.note u { color: #00A8FC; text-decoration: none; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 4px; font-weight: 700; font-family: 'Ws'; }
+.text b, .embed b { color: #F2F3F5; font-weight: 800; }
+.code { font-family: 'Rm'; font-size: 0.82em; background: #1E1F22; border-radius: 4px; padding: 1px 7px; color: #DBDEE1; }
+
+.embed { margin-top: 10px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 28px; font-size: 33px; line-height: 1.42; max-width: 820px; font-weight: 500; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 38px; height: 38px; flex: none; margin-top: 4px; }
+.pn .ti { font-size: 36px; font-weight: 800; color: #F2F3F5; }
+.pn .de { font-size: 32px; font-weight: 500; color: #DBDEE1; margin-top: 10px; line-height: 1.5; }
+.rv { padding: 22px 30px 24px; }
+.rv .au { font-size: 26px; font-weight: 700; color: #F2F3F5; }
+.rv .de { font-size: 30px; font-weight: 500; color: #DBDEE1; margin-top: 8px; }
+.rv .fn { font-size: 27px; font-weight: 800; color: #F2F3F5; margin-top: 18px; }
+.rv .fv { font-size: 30px; font-weight: 500; color: #DBDEE1; margin-top: 2px; line-height: 1.35; }
+.btns { display: flex; gap: 14px; margin-top: 14px; }
+.btn { height: 66px; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 30px; font-size: 29px; font-weight: 700; color: #fff; }
+.btn.pri { background: #5865F2; }
+.btn.ok { background: #248046; }
+.btn.no { background: #DA373C; }
+
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 800;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 32px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 600; }
+.typed { font-family: 'Rm'; font-weight: 500; font-size: 30px; color: #DBDEE1; line-height: 1.4; }
+.caret { display: inline-block; width: 3px; height: 34px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* the pop-up */
+.dim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.72); z-index: 5; }
+.modal { position: absolute; left: 50px; right: 50px; z-index: 6; background: #313338; border-radius: 8px; overflow: hidden; font-family: 'Ws'; }
+.modal .mh { display: flex; align-items: center; justify-content: space-between; padding: 30px 34px 10px; }
+.modal .mt { font-size: 38px; font-weight: 800; color: #F2F3F5; }
+.modal .x { font-size: 44px; color: #B5BAC1; font-weight: 500; line-height: 1; }
+.modal .fl { padding: 18px 34px 0; }
+.modal .lb { font-size: 26px; font-weight: 700; color: #DBDEE1; }
+.modal .lb s { text-decoration: none; color: #F23F43; margin-left: 6px; }
+.modal .bx { margin-top: 10px; background: #1E1F22; border-radius: 6px; min-height: 108px; padding: 16px 20px; font-size: 30px; line-height: 1.38; color: #DBDEE1; font-weight: 500; border: 2px solid #1E1F22; }
+.modal .bx.on { border-color: #00A8FC; }
+.modal .ft { margin-top: 30px; background: #2B2D31; display: flex; justify-content: flex-end; align-items: center; gap: 30px; padding: 24px 34px; }
+.modal .cn { font-size: 28px; color: #F2F3F5; font-weight: 600; }
+.modal .sb { background: #5865F2; color: #fff; font-size: 28px; font-weight: 700; padding: 18px 40px; border-radius: 6px; }
+
+.cursor { position: absolute; width: 54px; height: 70px; left: 0; top: 0; pointer-events: none; z-index: 20; }
+
+.rule { position: absolute; left: 50%; width: 560px; margin-left: -280px; height: 5px; }
+.facts { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ws'; font-weight: 600; font-size: 44px; line-height: 1.36; }
+.facts .code { font-size: 0.86em; background: rgba(227, 234, 240, 0.12); color: var(--ice); }
+
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Rm'; font-weight: 600; font-size: 50px; background: var(--mul); color: var(--ice); padding: 18px 38px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ds'; font-size: 116px; letter-spacing: -0.01em; }
+.mark { position: absolute; left: 50%; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (light) -->
+<section class="shot light" id="s0">
+  <div class="head" style="top:200px;font-size:118px;line-height:1.02">
+    <span class="line"><span>Asked to be a mod.</span></span>
+    <span class="line"><span style="color:var(--emd)"><i>Never heard back.</i></span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:520px;height:760px"></div>
+  <div class="sub" id="sub0" style="top:1370px;color:var(--softLt)">Applications in DMs get lost.</div>
+</section>
+
+<!-- 1 turn (dark) -->
+<section class="shot dark" id="s1">
+  <svg class="mark" id="mark1" viewBox="0 0 260 260" width="260" height="260" style="top:470px;margin-left:-130px">
+    <rect class="bx" x="18" y="18" width="224" height="224" fill="none" stroke="#E3EAF0" stroke-width="14" stroke-linejoin="round"/>
+    <path class="tk" d="M62 136 L112 186 L206 70" fill="none" stroke="#3DBB86" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <div class="head" style="top:800px;font-size:188px;line-height:0.98">
+    <span class="line"><span>Give it</span></span>
+    <span class="line"><span style="color:var(--em)"><i>a form.</i></span></span>
+  </div>
+</section>
+
+<!-- 2 create (light) -->
+<section class="shot light" id="s2">
+  <div class="kicker" style="top:420px;color:var(--emd)">Staff write the questions</div>
+  <div class="chat" id="chat2" style="top:490px;height:840px"></div>
+  <div class="sub" id="sub2" style="top:1410px;color:var(--softLt)">Up to five, split with a |</div>
+</section>
+
+<!-- 3 panel (dark) -->
+<section class="shot dark" id="s3">
+  <div class="kicker" style="top:560px;color:var(--em)">Members press Apply</div>
+  <div class="chat" id="chat3" style="top:630px;height:600px"></div>
+  <svg class="cursor" id="cur3" viewBox="0 0 54 70"><path d="M4 3 L4 56 L17 44 L26 66 L35 62 L26 41 L44 41 Z" fill="#fff" stroke="#111" stroke-width="3.5" stroke-linejoin="round"/></svg>
+</section>
+
+<!-- 4 modal (light) -->
+<section class="shot light" id="s4">
+  <div class="kicker" style="top:330px;color:var(--emd)">And answer in a pop-up</div>
+  <div class="chat" id="chat4" style="top:400px;height:1140px"></div>
+</section>
+
+<!-- 5 review (dark) -->
+<section class="shot dark" id="s5">
+  <div class="kicker" style="top:300px;color:var(--em)">Staff review it in one place</div>
+  <div class="chat" id="chat5" style="top:370px;height:1180px"></div>
+  <svg class="cursor" id="cur5" viewBox="0 0 54 70"><path d="M4 3 L4 56 L17 44 L26 66 L35 62 L26 41 L44 41 Z" fill="#fff" stroke="#111" stroke-width="3.5" stroke-linejoin="round"/></svg>
+</section>
+
+<!-- 6 result (light) -->
+<section class="shot light" id="s6">
+  <div class="head" style="top:440px;font-size:124px;line-height:1.02">
+    <span class="line"><span>And mira</span></span>
+    <span class="line"><span style="color:var(--emd)"><i>hears back.</i></span></span>
+  </div>
+  <div class="chat" id="chat6" style="top:790px;height:360px"></div>
+</section>
+
+<!-- 7 key fact (dark) -->
+<section class="shot dark" id="s7">
+  <div class="head" style="top:610px;font-size:106px;line-height:1.04">
+    <span class="line"><span>Approved or denied,</span></span>
+    <span class="line"><span style="color:var(--em)"><i>they get a DM.</i></span></span>
+  </div>
+  <div class="rule" id="rule7" style="top:920px;background:var(--em)"></div>
+  <div class="facts" id="facts7" style="top:970px;color:var(--ice)">
+    <span class="line"><span>Approve can hand out a role.</span></span>
+    <span class="line"><span>Deny can send a reason.</span></span>
+  </div>
+</section>
+
+<!-- 8 end card (light) -->
+<section class="shot light" id="s8">
+  <img class="logo" id="logo8" src="../../assets/kaivor-logo.png" style="top:380px">
+  <div class="kicker" style="top:710px;color:var(--emd)">New in Kaivor</div>
+  <div class="head" style="top:770px;font-size:164px;line-height:1.0">
+    <span class="line"><span>Applications</span></span>
+  </div>
+  <div class="pills" id="pills8" style="top:1020px"><span class="pill">,application create staff</span></div>
+  <div class="url" style="top:1180px;color:var(--ink)" id="url8">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BEAT_FRAMES = 40;
+const BEAT = BEAT_FRAMES / FPS;           // 0.6667 s, 90 BPM
+const beats = [4, 2, 4, 3, 4, 5, 3, 3, 4];
+const names = ['hook', 'turn', 'create', 'panel', 'modal', 'review', 'result', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: 60 / BEAT, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT_FRAMES / FPS })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  mira: { name: 'mira', bg: '#A0567E', i: 'M' },
+  teo:  { name: 'teo', bg: '#4E7A6A', i: 'T' },
+  juno: { name: 'juno', bg: '#5A6A9A', i: 'J' },
+  ash:  { name: 'ash', bg: '#8A6A3A', i: 'A' },
+  bot:  { name: 'Kaivor', bot: true, app: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const md = (s) => esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<span class="code">$1</span>');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+const ok = (html) => `<div class="st">${CHECK}<div>${html}</div></div>`;
+
+function msgHTML(m) {
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}${m.big ? ' big' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${md(m.text)}</div>`;
+  if (m.embed) content += `<div class="embed${m.cls ? ' ' + m.cls : ''}" style="${m.bar ? 'border-left-color:' + m.bar : ''}">${m.embed}</div>`;
+  if (m.extra) content += m.extra;
+  if (m.note) content += `<div class="note">${m.note}</div>`;
+  return `<div class="msg${m.eph ? ' eph' : ''}">${av}<div class="body"><div class="meta"><span class="who">${u.name}</span>${app}<span class="time">${m.time}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = opts.dm
+    ? `<span class="at">@</span><span class="name">${opts.channel}</span>`
+    : `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  let input = '';
+  if (opts.input !== false) {
+    const typed = opts.typed || '';
+    input = `<div class="input"><span class="plus">+</span>${typed
+      ? `<span class="typed">${esc(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+      : `<span class="ph">Message ${opts.dm ? '@' : '#'}${opts.channel}</span>`}</div>`;
+  }
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${input}${opts.overlay || ''}`;
+  if (newest && newest.at >= 0 && !opts.noslide) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, 0.18));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.34));
+    s.style.transform = `translateY(${(1 - e) * 112}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.32));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+function typing(cmd, t, a, d) {
+  return cmd.slice(0, Math.ceil(cmd.length * inout(p(t, a, d))));
+}
+function moveCursor(cur, t, from, to, tClick, leave, tLeave) {
+  const press = t >= tClick && t < tClick + 0.14;
+  let x, y;
+  if (t < tClick) { const q = inout(p(t, 0.05, tClick - 0.05)); x = from[0] + (to[0] - from[0]) * q; y = from[1] + (to[1] - from[1]) * q; }
+  else { const q = inout(p(t, tLeave, 0.6)); x = to[0] + (leave[0] - to[0]) * q; y = to[1] + (leave[1] - to[1]) * q; }
+  cur.style.transformOrigin = '6px 4px';
+  cur.style.transform = `translate(${x - 6}px, ${y - 4}px) scale(${press ? 0.86 : 1})`;
+  return press;
+}
+
+// ---- Kaivor's lines, copied from aurora-bot (src/commands/community/applications.ts, services/applications) ----
+const SERVER = 'Pixel Harbor';
+const QS = ['Why do you want to help?', 'How active are you?', 'Your timezone?'];
+const ANS = ['I already answer most questions in #help.', 'Most evenings, 2 to 3 hours.', 'CET'];
+const CMD_CREATE = ',application create staff ' + QS.join(' | ');
+const R_CREATE = ok('Made the <b>staff</b> form. Next: <span class="code">application channel staff #reviews</span>, then <span class="code">application panel staff</span>.');
+const SENT = 'Application sent. You will get a DM when it is decided.';
+const APPROVED = 'Application approved.';
+const DM = 'Your <b>staff</b> application in <b>' + SERVER + '</b> was approved.';
+const EPH_NOTE = 'Only you can see this · <u>Dismiss message</u>';
+
+function panelCard() {
+  return `<div class="ti">Apply: staff</div><div class="de">${QS.map((q, i) => `${i + 1}. ${q}`).join('<br>')}</div>`;
+}
+function reviewCard(decided) {
+  const fields = QS.map((q, i) => `<div class="fn">${q}</div><div class="fv">${esc(ANS[i])}</div>`).join('');
+  const verdict = decided ? `<div class="fn">Approved</div><div class="fv">By <span class="mention">@teo</span></div>` : '';
+  return `<div class="au">Application: staff</div><div class="de">From <span class="mention">@mira</span> (<span class="code">1043891276540133416</span>)</div>${fields}${verdict}`;
+}
+
+// ---- timings (seconds within the shot), on the beat grid; sound.py uses the same beats ----
+const H_MSG = [B(0.5), B(1.25), B(2)], H_SUB = B(2.75);
+const C_T = B(0.15), C_SEND = B(2), C_REP = B(2.5), C_SUB = B(3);
+const P_CLICK = B(1.75);
+const M_IN = 0, M_FIELD = [[B(0.25), B(1.25)], [B(1.375), B(2)], [B(2.125), B(2.375)]], M_SUBMIT = B(2.75), M_SENT = B(3);
+const R_CLICK = B(2), R_FLIP = B(2.25), R_EPH = B(2.5);
+const D_DM = B(0.75);
+window.T = { H_MSG, H_SUB, C_SEND, C_REP, P_CLICK, M_FIELD, M_SUBMIT, M_SENT, R_CLICK, R_FLIP, R_EPH, D_DM };
+
+const S = [...document.querySelectorAll('.shot')];
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, '.head', t, 0.04, 0.16);
+    renderChat(document.getElementById('chat0'), t, [
+      { u: 'juno', text: 'welcome in! read the rules :)', at: -1, time: 'Sunday at 19:20' },
+      { u: 'mira', text: 'hey! could i apply to be a mod?', at: H_MSG[0], time: 'Monday at 14:02' },
+      { u: 'mira', text: 'just checking you saw this', at: H_MSG[1], time: 'Wednesday at 18:40' },
+      { u: 'mira', text: '?', at: H_MSG[2], time: 'Friday at 21:15' },
+    ], { channel: 'juno', dm: true });
+    rise('sub0', t, H_SUB);
+  } else if (shot === 1) {
+    lines(sec, '.head', t, 0.0, 0.08);
+    const bx = sec.querySelector('#mark1 .bx'), tk = sec.querySelector('#mark1 .tk');
+    const Lt = tk.getTotalLength();
+    const qt = out4(p(t, B(0.75), 0.22));   // the box is there on the cut (keeps the frame centred); the tick draws
+    tk.style.strokeDasharray = `${Lt}`; tk.style.strokeDashoffset = `${Lt * (1 - qt)}`;
+  } else if (shot === 2) {
+    const msgs = [
+      { u: 'juno', text: 'can we stop doing mod apps in dms', at: -1, time: 'Today at 20:31' },
+      { u: 'teo', cmd: true, html: esc(CMD_CREATE), at: C_SEND, time: 'Today at 20:32' },
+      { u: 'bot', embed: R_CREATE, at: C_REP, time: 'Today at 20:32' },
+    ];
+    let typed = '', caret = false;
+    if (t >= C_T && t < C_SEND) { typed = typing(CMD_CREATE, t, C_T, C_SEND - C_T - 0.08); caret = true; }
+    renderChat(document.getElementById('chat2'), t, msgs, { channel: 'staff', topic: SERVER, typed, caret });
+    rise('sub2', t, C_SUB);
+  } else if (shot === 3) {
+    const press = t >= P_CLICK && t < P_CLICK + 0.14;
+    const msgs = [
+      { u: 'bot', embed: panelCard(), cls: 'pn', bar: '#658A95',
+        extra: `<div class="btns"><div class="btn pri" id="bapply" style="${press ? 'filter:brightness(1.2)' : ''}">Apply</div></div>`, at: -1, time: 'Today at 20:34' },
+    ];
+    renderChat(document.getElementById('chat3'), t, msgs, { channel: 'apply', topic: SERVER, input: false });
+    const r = document.getElementById('bapply').getBoundingClientRect();
+    moveCursor(document.getElementById('cur3'), t, [880, 1260], [r.left + r.width * 0.55, r.top + r.height * 0.55], P_CLICK, [r.left + r.width * 0.55, r.top + r.height * 0.55], 99);
+  } else if (shot === 4) {
+    const sent = t >= M_SENT;
+    const msgs = [
+      { u: 'bot', embed: panelCard(), cls: 'pn', bar: '#658A95', extra: `<div class="btns"><div class="btn pri">Apply</div></div>`, at: -1, time: 'Today at 20:34' },
+      { u: 'bot', eph: true, text: SENT, note: EPH_NOTE, at: M_SENT, time: 'Today at 20:36' },
+    ];
+    let overlay = '';
+    if (!sent) {
+      const fields = QS.map((q, i) => {
+        const [a, b] = M_FIELD[i];
+        const val = t >= a ? typing(ANS[i], t, a, b - a) : '';
+        const active = t >= a && t < (M_FIELD[i + 1] ? M_FIELD[i + 1][0] : M_SUBMIT);
+        return `<div class="fl"><div class="lb">${q}<s>*</s></div><div class="bx${active ? ' on' : ''}">${esc(val)}${active && t < b + 0.3 ? '<span class="caret"></span>' : ''}</div></div>`;
+      }).join('');
+      const press = t >= M_SUBMIT && t < M_SUBMIT + 0.14;
+      const e = out4(p(t, M_IN, 0.22));
+      overlay = `<div class="dim" style="opacity:${e}"></div><div class="modal" style="top:${150 + (1 - e) * 40}px;opacity:${e}">
+        <div class="mh"><span class="mt">Apply: staff</span><span class="x">×</span></div>${fields}
+        <div class="ft"><span class="cn">Cancel</span><span class="sb" style="${press ? 'filter:brightness(1.2);transform:scale(0.96)' : ''}">Submit</span></div></div>`;
+    }
+    renderChat(document.getElementById('chat4'), t, msgs, { channel: 'apply', topic: SERVER, input: false, overlay, noslide: !sent });
+  } else if (shot === 5) {
+    const decided = t >= R_FLIP;
+    const press = t >= R_CLICK && t < R_CLICK + 0.14;
+    const ctrl = decided ? '' : `<div class="btns"><div class="btn ok" id="bok" style="${press ? 'filter:brightness(1.2)' : ''}">Approve</div><div class="btn no">Deny</div></div>`;
+    const msgs = [
+      { u: 'ash', text: 'new one just came in', at: -1, time: 'Today at 20:36' },
+      { u: 'bot', embed: reviewCard(decided), cls: 'rv', bar: decided ? '#5BC98C' : '#658A95', extra: ctrl, at: -1, time: 'Today at 20:36' },
+      { u: 'bot', eph: true, text: APPROVED, note: EPH_NOTE, at: R_EPH, time: 'Today at 20:41' },
+    ];
+    renderChat(document.getElementById('chat5'), t, msgs, { channel: 'reviews', topic: SERVER, input: false });
+    const emb = document.querySelector('#chat5 .rv');
+    if (decided && emb) {
+      const q = out4(p(t, R_FLIP, 0.25));
+      emb.style.boxShadow = `0 0 0 ${Math.round(4 * (1 - q))}px #5BC98C`;
+    }
+    // the cursor aims at Approve (remembered after the buttons go away)
+    const b = document.getElementById('bok');
+    if (b) { const r = b.getBoundingClientRect(); window._ok5 = [r.left + r.width * 0.5, r.top + r.height * 0.55]; }
+    const target = window._ok5 || [400, 1300];
+    moveCursor(document.getElementById('cur5'), t, [900, 1500], target, R_CLICK, [960, 1460], R_CLICK + 0.45);
+  } else if (shot === 6) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    renderChat(document.getElementById('chat6'), t, [
+      { u: 'bot', big: true, html: DM, at: D_DM, time: 'Today at 20:41' },
+    ], { channel: 'Kaivor', dm: true, input: false });
+  } else if (shot === 7) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    const r = out4(p(t, B(0.75), 0.34));
+    document.getElementById('rule7').style.transform = `scaleX(${r})`;
+    lines(sec, '.facts', t, B(1), 0.1);
+  } else if (shot === 8) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo8');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills8', t, B(1));
+    rise('url8', t, B(1.75));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
