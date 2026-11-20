@@ -2,6 +2,18 @@
 
 One entry per video, newest first (VIDEO_RULES.md section 9). Numbers come from Metricool (brand 7853528) and are a snapshot from that day.
 
+## 2026-11-20
+
+**Data:** same as yesterday. TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. **The 11-19 posts (applications) also never went out**: both show ERROR "You have reached your Metricool account limit.", so nothing has published since 11-12 and the export is unchanged.
+
+**What changed since 11-19:** nothing. Repeating events (11-12) stays at **316** views, 5 likes, 1 share and is still the best November video; `/server setup` (26 Oct, 386 views, 6 likes) is still the best in the 30-day window. The November band is 274–316.
+
+**What seems to work:** unchanged: one concrete, relatable moment that went wrong, told plainly, with a number in it, where Kaivor does the work. The best November hook named a social miss ("game night was yesterday. nobody made the event.").
+
+**Signal strength: weak.** No new data for eight days; the last seven videos have not been seen by anyone.
+
+**What today's video does with it:** nothing new has shipped since `d62b1be` (public access, developer-only), so it picks polls (27 Oct, not made into a video yet): a member-facing social miss with a number in the hook ("34 messages. Still no movie."), then one command, everyone voting in a native poll, and Kaivor posting the results when it ends. The caption opens on that miss.
+
 ## 2026-11-19
 
 **Data:** same as yesterday. TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. **The 11-18 posts (suggestions) also never went out**: both show ERROR "You have reached your Metricool account limit.", so nothing has published since 11-12 and the export is unchanged.
