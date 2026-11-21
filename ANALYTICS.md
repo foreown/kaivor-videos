@@ -2,6 +2,18 @@
 
 One entry per video, newest first (VIDEO_RULES.md section 9). Numbers come from Metricool (brand 7853528) and are a snapshot from that day.
 
+## 2026-11-21
+
+**Data:** same as yesterday. TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. **The 11-20 posts (polls) also never went out**: both show ERROR "You have reached your Metricool account limit.", so nothing has published since 11-12 and the export is unchanged.
+
+**What changed since 11-20:** nothing. Repeating events (11-12) stays at **316** views, 5 likes, 1 share and is still the best November video; `/server setup` (26 Oct, 386 views, 6 likes) is still the best in the 30-day window. The November band is 274–316.
+
+**What seems to work:** unchanged: one concrete, relatable moment that went wrong, told plainly, with a number in it, where Kaivor does the work.
+
+**Signal strength: weak.** No new data for nine days; the last eight videos have not been seen by anyone.
+
+**What today's video does with it:** nothing new has shipped since `d62b1be` (public access, developer-only), so it picks Server Tag Rewards, the last feature from the 27 Oct community merge (`0f60ee5`) not yet made into a video: a member-facing miss with a number in the hook ("41 members wear your tag. Nobody noticed."), then two staff commands, a sync that gives the role to all 41, and Kaivor thanking the next member who puts the tag on. The caption opens on that miss.
+
 ## 2026-11-20
 
 **Data:** same as yesterday. TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns rows only up to the 11-01 Short, all without numbers, so this read is TikTok only. **The 11-19 posts (applications) also never went out**: both show ERROR "You have reached your Metricool account limit.", so nothing has published since 11-12 and the export is unchanged.

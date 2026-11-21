@@ -1,0 +1,428 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: Server Tag Rewards (aurora-bot commit 0f60ee5, "Merge community features: polls, suggestions, birthdays,
+  applications, events, economy, server tags"; code in src/commands/configuration/servertag.ts and
+  src/services/servertag/index.ts).
+  Look: "enamel pin": cream #F2E8D8 and midnight #10192E alternating by shot, one accent (bubblegum pink #F27BA5 on
+  dark, deep pink #B42A5E on light). The server tag drawn big as an enamel pin on the turn, a member list whose names
+  turn the reward role's colour one by one.
+  Bungee for headlines, Urbanist for the chat UI and copy, Reddit Mono only for commands.
+  Facts checked in aurora-bot:
+    - src/commands/configuration/servertag.ts (Manage Server, prefix `,`):
+        `vanity tag role <role|off>` -> ctx.success(`Members wearing this server's tag now get ${role}. Run
+          \`vanity tag sync\` to give it to those who already do.`)
+        `vanity tag channel <channel|off>` -> ctx.success(`Tag rewards will be announced in ${channel}.`)
+        `vanity tag sync` -> ctx.success(`Gave the role to ${added} and took it from ${removed}.`) (defer only applies
+          to slash commands, so the prefix reply is a normal message). Here: 41 added, 0 removed (a brand-new role, so
+          nobody held it yet; the hook says 41 members wear the tag).
+    - src/services/servertag/index.ts:
+        DEFAULT_SERVER_TAG_MESSAGE = 'Thanks for wearing our **{tag}** tag, {user.mention}! You got {role}.', posted in
+          the award channel when someone starts wearing the tag (guildMemberUpdate -> syncServerTagMember, announce on).
+        A member who stops wearing the tag loses the role ('No longer wears the server tag').
+        The tag comes with the member's profile (user.primary_guild), so it "needs no Presence Intent and sees
+          everyone, including members who are invisible or hide their activity".
+    - prisma/schema.prisma: ServerTagConfig.enabled defaults to true, so no `vanity tag on` is needed.
+    - src/framework/embeds.ts: successEmbed = COLORS.success #5BC98C, icon then the sentence.
+  "Nova Lounge" (tag NOVA) is a made-up server; mira, teo, juno, ash, pim, rae, lou and kit_42 are made-up users.
+  Sound: own sound (music/ is empty), 120 BPM (30 frames a beat); every shot is a whole number of beats (sound.py).
+-->
+<style>
+@font-face { font-family: 'Bg'; font-weight: 400; src: url('../../node_modules/@fontsource/bungee/files/bungee-latin-400-normal.woff2'); }
+@font-face { font-family: 'Ub'; font-weight: 500; src: url('../../node_modules/@fontsource/urbanist/files/urbanist-latin-500-normal.woff2'); }
+@font-face { font-family: 'Ub'; font-weight: 600; src: url('../../node_modules/@fontsource/urbanist/files/urbanist-latin-600-normal.woff2'); }
+@font-face { font-family: 'Ub'; font-weight: 700; src: url('../../node_modules/@fontsource/urbanist/files/urbanist-latin-700-normal.woff2'); }
+@font-face { font-family: 'Ub'; font-weight: 800; src: url('../../node_modules/@fontsource/urbanist/files/urbanist-latin-800-normal.woff2'); }
+@font-face { font-family: 'Rm'; font-weight: 500; src: url('../../node_modules/@fontsource/reddit-mono/files/reddit-mono-latin-500-normal.woff2'); }
+@font-face { font-family: 'Rm'; font-weight: 700; src: url('../../node_modules/@fontsource/reddit-mono/files/reddit-mono-latin-700-normal.woff2'); }
+
+:root { --mid: #10192E; --crm: #F2E8D8; --ink: #141C30; --pk: #F27BA5; --pkd: #B42A5E; --softLt: #6A6260; --softDk: #A9B0C2; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--crm); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--mid); color: var(--crm); }
+.light { background: var(--crm); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Bg'; font-weight: 400; }
+.line { display: block; overflow: hidden; padding-bottom: 0.12em; margin-bottom: -0.08em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Ub'; font-weight: 800; font-size: 34px; letter-spacing: 0.18em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; padding-left: 0.18em; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Ub'; font-weight: 700; font-size: 46px; line-height: 1.3; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.panel { position: absolute; left: 60px; width: 960px; background: #2B2D31; border-radius: 8px; overflow: hidden; font-family: 'Ub'; color: #DBDEE1; }
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Ub'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 600; }
+.chat .top .name { font-size: 34px; font-weight: 800; color: #F2F3F5; }
+.chat .top .topic { font-size: 26px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 700; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 24px; padding: 12px 32px; overflow: hidden; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 34px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: center; gap: 12px; }
+.who { font-size: 34px; font-weight: 800; color: #F2F3F5; }
+.app { font-size: 19px; font-weight: 800; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; }
+.time { font-size: 24px; color: #949BA4; font-weight: 600; }
+.text { font-size: 37px; line-height: 1.36; color: #DBDEE1; margin-top: 3px; font-weight: 600; }
+.text.cmd { font-family: 'Rm'; font-weight: 500; font-size: 32px; line-height: 1.45; }
+.text b, .embed b { color: #F2F3F5; font-weight: 800; }
+.code { font-family: 'Rm'; font-weight: 500; font-size: 0.84em; background: #1E1F22; border-radius: 4px; padding: 1px 6px; color: #DBDEE1; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 5px; font-weight: 700; font-family: 'Ub'; }
+.rmention { background: rgba(242, 123, 165, 0.16); color: #F27BA5; border-radius: 4px; padding: 0 5px; font-weight: 700; font-family: 'Ub'; }
+.embed { margin-top: 8px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 26px 22px; max-width: 830px; font-size: 34px; line-height: 1.38; font-weight: 600; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 38px; height: 38px; flex: none; margin-top: 5px; }
+
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 800;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 32px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 600; }
+.typed { font-family: 'Rm'; font-weight: 500; font-size: 32px; color: #DBDEE1; line-height: 1.4; }
+.caret { display: inline-block; width: 3px; height: 34px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* the server tag pill */
+.tag { display: inline-flex; align-items: center; gap: 7px; background: #3F4148; border-radius: 7px; padding: 3px 11px 3px 8px;
+       font-family: 'Ub'; font-weight: 800; font-size: 22px; letter-spacing: 0.05em; color: #EDEEF0; line-height: 1.25; transform-origin: 0 50%; }
+.tag svg { width: 20px; height: 20px; flex: none; }
+
+/* member list */
+.mhead { font-size: 25px; font-weight: 800; letter-spacing: 0.06em; color: #949BA4; padding: 26px 34px 10px; text-transform: uppercase; position: relative; height: 66px; }
+.mhead span { position: absolute; left: 34px; top: 26px; }
+.mrow { display: flex; align-items: center; gap: 22px; padding: 11px 34px; height: 94px; }
+.mrow .av { width: 70px; height: 70px; font-size: 30px; position: relative; overflow: visible; }
+.mrow .av .dot { position: absolute; right: -3px; bottom: -3px; width: 24px; height: 24px; border-radius: 50%; background: #23A55A; border: 5px solid #2B2D31; }
+.mrow .nm { font-size: 34px; font-weight: 700; color: #B5BAC1; }
+
+/* profile card */
+.card { position: absolute; left: 60px; width: 960px; background: #232428; border-radius: 12px; overflow: hidden; font-family: 'Ub'; color: #DBDEE1; }
+.card .ban { height: 110px; background: #4E7A6A; }
+.card .pav { position: absolute; left: 40px; top: 46px; width: 140px; height: 140px; border-radius: 50%; border: 9px solid #232428; background: #4E7A6A;
+             display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 56px; color: #fff; }
+.card .pn { position: absolute; left: 206px; top: 124px; display: flex; align-items: center; gap: 14px; }
+.card .pn .who { font-size: 46px; }
+.card .pn .tag { font-size: 27px; padding: 4px 13px 4px 10px; border-radius: 8px; }
+.card .pn .tag svg { width: 25px; height: 25px; }
+.card .handle { position: absolute; left: 206px; top: 186px; font-size: 27px; font-weight: 600; color: #B5BAC1; }
+.card .set { margin: 140px 30px 30px; background: #2B2D31; border-radius: 10px; height: 104px; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; }
+.card .set .lb { font-size: 30px; font-weight: 800; color: #F2F3F5; }
+.card .set .lb small { display: block; font-size: 24px; font-weight: 600; color: #949BA4; margin-top: 2px; }
+.sw { width: 92px; height: 52px; border-radius: 26px; background: #80848E; position: relative; flex: none; }
+.sw i { position: absolute; top: 6px; left: 6px; width: 40px; height: 40px; border-radius: 50%; background: #fff; }
+
+.cursor { position: absolute; width: 54px; height: 70px; left: 0; top: 0; pointer-events: none; z-index: 20; }
+
+/* the enamel pin on the turn */
+.pin { position: absolute; left: 50%; display: flex; align-items: center; gap: 34px; padding: 30px 60px 30px 46px; border-radius: 30px;
+       background: var(--crm); color: var(--mid); font-family: 'Bg'; font-size: 120px; line-height: 1; border: 10px solid var(--pk); }
+.pin svg { width: 104px; height: 104px; flex: none; }
+
+.rule { position: absolute; left: 50%; width: 520px; margin-left: -260px; height: 8px; }
+.facts { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ub'; font-weight: 700; font-size: 46px; line-height: 1.4; }
+
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Rm'; font-weight: 700; font-size: 40px; background: var(--mid); color: var(--crm); padding: 18px 34px; white-space: nowrap; border-radius: 12px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ub'; font-weight: 800; font-size: 104px; letter-spacing: -0.01em; }
+.stamp { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ub'; font-weight: 800; font-size: 32px; letter-spacing: 0.2em; text-transform: uppercase; padding-left: 0.2em; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (light) -->
+<section class="shot light" id="s0">
+  <div class="head" style="top:150px;font-size:92px;line-height:1.08">
+    <span class="line"><span>41 members</span></span>
+    <span class="line"><span>wear your tag.</span></span>
+    <span class="line"><span style="color:var(--pkd)">Nobody noticed.</span></span>
+  </div>
+  <div class="panel" id="list0" style="top:560px;height:870px"></div>
+  <div class="sub" id="sub0" style="top:1500px;color:var(--softLt)">Same grey names as everyone else.</div>
+</section>
+
+<!-- 1 turn (dark) -->
+<section class="shot dark" id="s1">
+  <div class="head" style="top:520px;font-size:124px;line-height:1.06">
+    <span class="line"><span>Now Kaivor</span></span>
+    <span class="line"><span style="color:var(--pk)">notices.</span></span>
+  </div>
+  <div class="pin" id="pin1" style="top:960px"></div>
+</section>
+
+<!-- 2 commands (light) -->
+<section class="shot light" id="s2">
+  <div class="kicker" style="top:250px;color:var(--pkd)">Two commands</div>
+  <div class="chat" id="chat2" style="top:320px;height:1300px"></div>
+</section>
+
+<!-- 3 sync (dark) -->
+<section class="shot dark" id="s3">
+  <div class="kicker" style="top:190px;color:var(--pk)">Everyone already wearing it</div>
+  <div class="chat" id="chat3" style="top:260px;height:660px"></div>
+  <div class="panel" id="list3" style="top:960px;height:745px"></div>
+</section>
+
+<!-- 4 from now on (light) -->
+<section class="shot light" id="s4">
+  <div class="kicker" style="top:330px;color:var(--pkd)">And from now on</div>
+  <div class="card" id="card4" style="top:400px;height:380px">
+    <div class="ban"></div>
+    <div class="pav">T</div>
+    <div class="pn"><span class="who">teo</span><span id="ptag4"></span></div>
+    <div class="handle">teo.wav</div>
+    <div class="set"><div class="lb">Server tag<small>Nova Lounge</small></div><div class="sw" id="sw4"><i></i></div></div>
+  </div>
+  <div class="chat" id="chat4" style="top:830px;height:620px"></div>
+  <svg class="cursor" id="cur4" viewBox="0 0 54 70"><path d="M4 3 L4 56 L17 44 L26 66 L35 62 L26 41 L44 41 Z" fill="#fff" stroke="#111" stroke-width="3.5" stroke-linejoin="round"/></svg>
+</section>
+
+<!-- 5 fact (dark) -->
+<section class="shot dark" id="s5">
+  <div class="head" style="top:600px;font-size:132px;line-height:1.08">
+    <span class="line"><span>Tag off,</span></span>
+    <span class="line"><span style="color:var(--pk)">role off.</span></span>
+  </div>
+  <div class="rule" id="rule5" style="top:960px;background:var(--pk)"></div>
+  <div class="facts" id="facts5" style="top:1010px;color:var(--crm)">
+    <span class="line"><span>Kaivor takes it back by itself.</span></span>
+    <span class="line"><span style="color:var(--softDk)">It sees members who hide their status too.</span></span>
+  </div>
+</section>
+
+<!-- 6 end card (light) -->
+<section class="shot light" id="s6">
+  <img class="logo" id="logo6" src="../../assets/kaivor-logo.png" style="top:360px">
+  <div class="stamp" style="top:680px;color:var(--pkd)">New in Kaivor</div>
+  <div class="head" style="top:740px;font-size:118px;line-height:1.06">
+    <span class="line"><span>Server tag</span></span>
+    <span class="line"><span>rewards</span></span>
+  </div>
+  <div class="pills" id="pills6" style="top:1050px"><span class="pill">,vanity tag role @Tag Crew</span></div>
+  <div class="url" style="top:1190px;color:var(--ink)" id="url6">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BEAT_FRAMES = 30;
+const BEAT = BEAT_FRAMES / FPS;           // 0.5 s, 120 BPM
+const beats = [6, 2, 8, 6, 6, 4, 6];
+const names = ['hook', 'turn', 'commands', 'sync', 'live', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: 60 / BEAT, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT_FRAMES / FPS })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  mira: { name: 'mira', bg: '#A0567E', i: 'M' },
+  teo:  { name: 'teo', bg: '#4E7A6A', i: 'T' },
+  juno: { name: 'juno', bg: '#5A6A9A', i: 'J' },
+  ash:  { name: 'ash', bg: '#8A6A3A', i: 'A' },
+  pim:  { name: 'pim', bg: '#7A4E9A', i: 'P' },
+  rae:  { name: 'rae', bg: '#9A5A4A', i: 'R' },
+  lou:  { name: 'lou', bg: '#4A7A9A', i: 'L' },
+  kit:  { name: 'kit_42', bg: '#6A8A4A', i: 'K' },
+  bot:  { name: 'Kaivor', bot: true, app: true },
+};
+const ROLE = '#F27BA5';
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const BADGE = (c = '#F27BA5') => `<svg viewBox="0 0 20 20"><path d="M10 1.5 18.5 10 10 18.5 1.5 10Z" fill="${c}"/><path d="M10 6 14 10 10 14 6 10Z" fill="#fff" opacity="0.9"/></svg>`;
+const TAG = (style = '') => `<span class="tag" style="${style}">${BADGE()}NOVA</span>`;
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+const ok = (html) => `<div class="embed"><div class="st">${CHECK}<div>${html}</div></div></div>`;
+
+// ---- Kaivor's replies, copied from aurora-bot src/commands/configuration/servertag.ts and src/services/servertag ----
+const ROLE_M = '<span class="rmention">@Tag Crew</span>';
+const CH_M = '<span class="mention">#general</span>';
+const CMD_ROLE = ',vanity tag role @Tag Crew';
+const CMD_CH = ',vanity tag channel #general';
+const CMD_SYNC = ',vanity tag sync';
+const R_ROLE = ok(`Members wearing this server's tag now get ${ROLE_M}. Run <span class="code">vanity tag sync</span> to give it to those who already do.`);
+const R_CH = ok(`Tag rewards will be announced in ${CH_M}.`);
+const R_SYNC = ok('Gave the role to 41 and took it from 0.');
+// DEFAULT_SERVER_TAG_MESSAGE: 'Thanks for wearing our **{tag}** tag, {user.mention}! You got {role}.'
+const AWARD = `Thanks for wearing our <b>NOVA</b> tag, <span class="mention">@teo</span>! You got ${ROLE_M}.`;
+const cmdHTML = (s) => esc(s).replace('@Tag Crew', '<span class="rmention">@Tag Crew</span>').replace('#general', '<span class="mention">#general</span>');
+
+function msgHTML(m) {
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  const nameStyle = m.roleName ? `style="color:${ROLE}"` : '';
+  const tag = m.tag ? TAG() : '';
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${esc(m.text)}</div>`;
+  if (m.extra) content += m.extra;
+  return `<div class="msg">${av}<div class="body"><div class="meta"><span class="who" ${nameStyle}>${u.name}</span>${tag}${app}<span class="time">${m.time}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  let input = '';
+  if (opts.input !== false) {
+    const typed = opts.typed || '';
+    input = `<div class="input"><span class="plus">+</span>${typed
+      ? `<span class="typed">${esc(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+      : `<span class="ph">Message #${opts.channel}</span>`}</div>`;
+  }
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, 0.18));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.34));
+    s.style.transform = `translateY(${(1 - e) * 112}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.32));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+function typing(cmd, t, a, d) {
+  return cmd.slice(0, Math.ceil(cmd.length * inout(p(t, a, d))));
+}
+function pop(t, a) {   // tag pill scale-in, fast out, no overshoot
+  const e = out4(p(t, a, 0.16));
+  return t < a ? 'transform:scale(0);opacity:0' : `transform:scale(${0.4 + 0.6 * e});opacity:${e}`;
+}
+
+// member list: rows [user, wearsTag]
+const ROWS = [['mira', 1], ['juno', 1], ['teo', 0], ['ash', 1], ['pim', 1], ['lou', 0], ['rae', 1], ['kit', 1]];
+function memberList(el, header, rows, opts = {}) {
+  el.innerHTML = `<div class="mhead">${header}</div>` + rows.map(([u, tagged], k) => {
+    const usr = U[u];
+    const tagStyle = opts.tagAt ? pop(opts.t, opts.tagAt[k]) : '';
+    const tag = tagged ? TAG(tagStyle) : '';
+    const pinkness = opts.pink ? opts.pink[k] : 0;
+    const col = pinkness > 0 ? `color:${mix('#B5BAC1', ROLE, pinkness)}` : '';
+    return `<div class="mrow"><div class="av" style="background:${usr.bg}">${usr.i}<span class="dot"></span></div><span class="nm" style="${col}">${usr.name}</span>${tag}</div>`;
+  }).join('');
+}
+function mix(a, b, k) {
+  const h = (s) => [1, 3, 5].map((i) => parseInt(s.slice(i, i + 2), 16));
+  const A = h(a), C = h(b);
+  return `rgb(${A.map((v, i) => Math.round(v + (C[i] - v) * k)).join(',')})`;
+}
+
+// ---- timings (seconds within the shot), on the beat grid; sound.py uses the same beats ----
+const H_TAGS = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0].map(B);        // six tag pills pop in the hook (rows 0,1,3,4,6,7)
+const H_L3 = B(3.5), H_SUB = B(4.25);
+const P_PIN = B(0.25);
+const C2_T1 = B(0.25), C2_S1 = B(2), C2_R1 = B(2.5), C2_T2 = B(3.25), C2_S2 = B(5), C2_R2 = B(5.5);
+const C3_T = B(0.25), C3_S = B(1.5), C3_R = B(2), C3_PINK = [2.5, 2.75, 3.0, 3.25, 3.5, 3.75].map(B);
+const L_CLICK = B(1.5), L_POST = B(2.5);
+window.T = { H_TAGS, H_L3, H_SUB, C2_S1, C2_R1, C2_S2, C2_R2, C3_S, C3_R, C3_PINK, L_CLICK, L_POST };
+
+const S = [...document.querySelectorAll('.shot')];
+document.getElementById('pin1').innerHTML = `${BADGE('#F27BA5')}<span>NOVA</span>`;
+
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    sec.querySelectorAll('.head .line > span').forEach((s, i) => {
+      const a = i < 2 ? 0.02 + i * 0.12 : H_L3;
+      const e = out4(p(t, a, 0.34));
+      s.style.transform = `translateY(${(1 - e) * 112}%)`;
+    });
+    const at = []; let k = 0;
+    ROWS.forEach(([, tg]) => at.push(tg ? H_TAGS[k++] : 0));
+    memberList(document.getElementById('list0'), '<span>Online — 58</span>', ROWS, { t, tagAt: at });
+    rise('sub0', t, H_SUB);
+  } else if (shot === 1) {
+    lines(sec, '.head', t, 0.0, 0.08);
+    const pin = document.getElementById('pin1');
+    const e = out4(p(t, P_PIN, 0.22));
+    pin.style.transform = `translateX(-50%) scale(${1.25 - 0.25 * e})`;
+    pin.style.opacity = String(e);
+  } else if (shot === 2) {
+    const msgs = [
+      { u: 'rae', text: 'so many people wear NOVA now', at: -1, time: 'Today at 20:09' },
+      { u: 'ash', text: 'half my friends list has it lol', at: -1, time: 'Today at 20:10' },
+      { u: 'mira', text: 'can we do something for people who wear our tag?', at: -1, time: 'Today at 20:11' },
+      { u: 'juno', cmd: true, html: cmdHTML(CMD_ROLE), at: C2_S1, time: 'Today at 20:12' },
+      { u: 'bot', extra: R_ROLE, at: C2_R1, time: 'Today at 20:12' },
+      { u: 'juno', cmd: true, html: cmdHTML(CMD_CH), at: C2_S2, time: 'Today at 20:12' },
+      { u: 'bot', extra: R_CH, at: C2_R2, time: 'Today at 20:12' },
+    ];
+    let typed = '', caret = false;
+    if (t >= C2_T1 && t < C2_S1) { typed = typing(CMD_ROLE, t, C2_T1, C2_S1 - C2_T1 - 0.1); caret = true; }
+    if (t >= C2_T2 && t < C2_S2) { typed = typing(CMD_CH, t, C2_T2, C2_S2 - C2_T2 - 0.1); caret = true; }
+    renderChat(document.getElementById('chat2'), t, msgs, { channel: 'staff', topic: 'Nova Lounge', typed, caret });
+  } else if (shot === 3) {
+    const msgs = [
+      { u: 'bot', extra: R_CH, at: -1, time: 'Today at 20:12' },
+      { u: 'juno', cmd: true, html: esc(CMD_SYNC), at: C3_S, time: 'Today at 20:13' },
+      { u: 'bot', extra: R_SYNC, at: C3_R, time: 'Today at 20:13' },
+    ];
+    let typed = '', caret = false;
+    if (t >= C3_T && t < C3_S) { typed = typing(CMD_SYNC, t, C3_T, C3_S - C3_T - 0.1); caret = true; }
+    renderChat(document.getElementById('chat3'), t, msgs, { channel: 'staff', topic: 'Nova Lounge', typed, caret });
+    // the tagged members move into the Tag Crew group: header swaps, count runs to 41, names turn the role colour
+    const tagged = ROWS.filter((r) => r[1]);
+    const n = Math.round(41 * out4(p(t, C3_PINK[0], C3_PINK[5] + 0.2 - C3_PINK[0])));
+    const swap = out4(p(t, C3_PINK[0] - 0.12, 0.2));
+    const header = `<span style="opacity:${1 - swap};transform:translateY(${-swap * 30}px)">Online — 58</span>` +
+                   `<span style="opacity:${swap};transform:translateY(${(1 - swap) * 30}px);color:${ROLE}">Tag Crew — ${n}</span>`;
+    memberList(document.getElementById('list3'), header, tagged.concat([['lou', 0], ['teo', 0]]).slice(0, 7),
+      { pink: C3_PINK.map((a) => out4(p(t, a, 0.16))).concat([0, 0]) });
+  } else if (shot === 4) {
+    // teo turns the tag on in his profile; Kaivor gives the role and posts in #general
+    const on = t >= L_CLICK;
+    const sw = document.getElementById('sw4');
+    const q = out4(p(t, L_CLICK, 0.14));
+    sw.style.background = mix('#80848E', '#23A55A', q);
+    sw.querySelector('i').style.transform = `translateX(${q * 40}px)`;
+    document.getElementById('ptag4').innerHTML = on ? TAG(pop(t, L_CLICK + 0.04)) : '';
+    renderChat(document.getElementById('chat4'), t, [
+      { u: 'lou', text: 'gg last night everyone', at: -1, time: 'Today at 21:38' },
+      { u: 'rae', text: 'anyone up for a match later?', at: -1, time: 'Today at 21:40', roleName: true, tag: true },
+      { u: 'bot', html: AWARD, at: L_POST, time: 'Today at 21:41' },
+    ], { channel: 'general', topic: 'Nova Lounge' });
+    // cursor: in from the lower right, eases onto the switch, clicks, drifts off
+    const r = sw.getBoundingClientRect();
+    const X = r.left + r.width * 0.5, Y = r.top + r.height * 0.6;
+    let x, y;
+    if (t < L_CLICK) { const k = inout(p(t, 0.05, L_CLICK - 0.08)); x = 1000 + (X - 1000) * k; y = 900 + (Y - 900) * k; }
+    else { const k = inout(p(t, L_CLICK + 0.25, 0.5)); x = X + (1010 - X) * k; y = Y + (860 - Y) * k; }
+    const down = t >= L_CLICK && t < L_CLICK + 0.14;
+    const cur = document.getElementById('cur4');
+    cur.style.transformOrigin = '6px 4px';
+    cur.style.transform = `translate(${x - 6}px, ${y - 4}px) scale(${down ? 0.86 : 1})`;
+    cur.style.opacity = t > L_CLICK + 0.8 ? String(1 - p(t, L_CLICK + 0.8, 0.2)) : '1';
+  } else if (shot === 5) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    const r = out4(p(t, B(1), 0.34));
+    document.getElementById('rule5').style.transform = `scaleX(${r})`;
+    lines(sec, '.facts', t, B(1.25), 0.2);
+  } else if (shot === 6) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo6');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills6', t, B(1));
+    rise('url6', t, B(2));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>

@@ -17,6 +17,7 @@
     "@fontsource/bodoni-moda": "^5.3.0",
     "@fontsource/bowlby-one": "^5.3.0",
     "@fontsource/bricolage-grotesque": "^5.0.0",
+    "@fontsource/bungee": "^5.3.0",
     "@fontsource/chivo": "^5.3.0",
     "@fontsource/courier-prime": "^5.3.0",
     "@fontsource/darker-grotesque": "^5.3.0",
@@ -47,6 +48,7 @@
     "@fontsource/plus-jakarta-sans": "^5.3.0",
     "@fontsource/public-sans": "^5.3.0",
     "@fontsource/red-hat-mono": "^5.3.0",
+    "@fontsource/reddit-mono": "^5.3.0",
     "@fontsource/rethink-sans": "^5.3.0",
     "@fontsource/roboto-mono": "^5.3.0",
     "@fontsource/rubik": "^5.3.0",
@@ -60,6 +62,7 @@
     "@fontsource/syne": "^5.3.0",
     "@fontsource/ubuntu-mono": "^5.3.0",
     "@fontsource/unbounded": "^5.3.0",
+    "@fontsource/urbanist": "^5.3.0",
     "@fontsource/victor-mono": "^5.3.0",
     "@fontsource/work-sans": "^5.3.0",
     "@fontsource/young-serif": "^5.3.0"
