@@ -1,0 +1,381 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: timed locks that unlock themselves (aurora-bot commit 469c1f0, "Timed locks that unlock themselves,
+  and a lock role for servers that talk through one"; code in src/commands/moderation/channel.ts,
+  src/services/channels/lock.ts and src/services/moderation/punishments.ts).
+  Look: "kitchen timer": frost #E6ECEE and gunmetal #1A1F23 alternating by shot, one accent (copper #D9823F on dark,
+  deep copper #A4521B on light). A flat padlock inside a kitchen-timer dial whose ring fills while a clock runs
+  21:14 -> 21:24, then the shackle springs open.
+  Dela Gothic One for headlines, Red Hat Text for the chat UI and copy, Sometype Mono only for commands.
+  Facts checked in aurora-bot:
+    - src/commands/moderation/channel.ts (Manage Channels, prefix `,`):
+        usage '[#channel] [duration] [reason]', example 'lock #general 10m heated argument'.
+        A timed lock runs from 1 minute to 30 days (MAX_LOCK_MS = 30 days, min 60_000 ms).
+        Timed reply: ctx.success(`Locked ${channel} until ${timestamp(endsAt, 't')} (${timestamp(endsAt, 'R')}).`)
+          -> Discord renders <t:..:t> as the short time (21:24 here, sent 21:14) and <t:..:R> as "in 10 minutes".
+        `unlock` clears the timer ("Unlocked #channel.").
+    - src/services/channels/lock.ts: a lock denies SendMessages to @everyone (and the lock role, if set); unlock puts
+        back the permissions recorded at lock time.
+    - src/services/moderation/punishments.ts: the timed lock is a punishment row (kind CHANNEL_LOCK), re-queued at boot,
+        so the unlock survives a restart; on expiry it calls unlockChannel(..., 'Timed lock ended'). It posts no message.
+    - src/framework/embeds.ts: successEmbed = COLORS.success #5BC98C, icon then the sentence.
+  "Pitch Side" is a made-up server; sol, teo, mira, juno and gift_drop4821 are made-up users.
+  Sound: own sound (music/ is empty), 100 BPM (36 frames a beat); every shot is a whole number of beats (sound.py).
+-->
+<style>
+@font-face { font-family: 'Dg'; font-weight: 400; src: url('../../node_modules/@fontsource/dela-gothic-one/files/dela-gothic-one-latin-400-normal.woff2'); }
+@font-face { font-family: 'Rh'; font-weight: 500; src: url('../../node_modules/@fontsource/red-hat-text/files/red-hat-text-latin-500-normal.woff2'); }
+@font-face { font-family: 'Rh'; font-weight: 600; src: url('../../node_modules/@fontsource/red-hat-text/files/red-hat-text-latin-600-normal.woff2'); }
+@font-face { font-family: 'Rh'; font-weight: 700; src: url('../../node_modules/@fontsource/red-hat-text/files/red-hat-text-latin-700-normal.woff2'); }
+@font-face { font-family: 'Sm'; font-weight: 500; src: url('../../node_modules/@fontsource/sometype-mono/files/sometype-mono-latin-500-normal.woff2'); }
+@font-face { font-family: 'Sm'; font-weight: 700; src: url('../../node_modules/@fontsource/sometype-mono/files/sometype-mono-latin-700-normal.woff2'); }
+
+:root { --gun: #1A1F23; --frost: #E6ECEE; --ink: #182026; --cu: #D9823F; --cud: #A4521B; --softLt: #5E6A71; --softDk: #9AA7AE; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--frost); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--gun); color: var(--frost); }
+.light { background: var(--frost); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Dg'; font-weight: 400; letter-spacing: -0.01em; }
+.line { display: block; overflow: hidden; padding-bottom: 0.14em; margin-bottom: -0.1em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Rh'; font-weight: 700; font-size: 34px; letter-spacing: 0.2em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; padding-left: 0.2em; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Rh'; font-weight: 700; font-size: 44px; line-height: 1.3; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Rh'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 600; }
+.chat .top .name { font-size: 34px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 26px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 600; }
+.chat .top .lk { width: 30px; height: 30px; margin-left: -6px; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 24px; padding: 12px 32px; overflow: hidden; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 34px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: center; gap: 12px; }
+.who { font-size: 34px; font-weight: 700; color: #F2F3F5; }
+.app { font-size: 19px; font-weight: 700; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; }
+.time { font-size: 24px; color: #949BA4; font-weight: 600; }
+.text { font-size: 37px; line-height: 1.36; color: #DBDEE1; margin-top: 3px; font-weight: 500; }
+.text.cmd { font-family: 'Sm'; font-weight: 500; font-size: 32px; line-height: 1.45; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 5px; font-weight: 600; font-family: 'Rh'; }
+.embed { margin-top: 8px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 26px 22px; max-width: 830px; font-size: 34px; line-height: 1.38; font-weight: 500; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 38px; height: 38px; flex: none; margin-top: 5px; }
+.ts { background: rgba(255, 255, 255, 0.07); border-radius: 4px; padding: 0 5px; }
+.divider { display: flex; align-items: center; gap: 16px; padding: 14px 32px 6px; font-size: 22px; font-weight: 700; color: #949BA4; }
+.divider::before, .divider::after { content: ''; flex: 1; height: 2px; background: #3F4147; }
+
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.input.locked { background: #2E3035; }
+.input.locked .ph { color: #80848E; white-space: normal; font-size: 29px; line-height: 1.3; }
+.input svg { width: 34px; height: 34px; flex: none; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 31px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 500; }
+.typed { font-family: 'Sm'; font-weight: 500; font-size: 32px; color: #DBDEE1; line-height: 1.4; }
+.caret { display: inline-block; width: 3px; height: 34px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* padlock + kitchen-timer dial */
+.dial { position: absolute; left: 50%; width: 620px; height: 620px; margin-left: -310px; }
+.clock { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Dg'; font-size: 150px; letter-spacing: 0.02em; font-variant-numeric: tabular-nums; }
+
+.rule { position: absolute; left: 50%; width: 520px; margin-left: -260px; height: 8px; }
+.facts { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Rh'; font-weight: 700; font-size: 46px; line-height: 1.4; }
+.facts .code { font-family: 'Sm'; font-weight: 700; color: var(--cu); }
+
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Sm'; font-weight: 700; font-size: 44px; background: var(--gun); color: var(--frost); padding: 18px 36px; white-space: nowrap; border-radius: 12px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Rh'; font-weight: 700; font-size: 104px; letter-spacing: -0.01em; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (dark) -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:150px;font-size:80px;line-height:1.12">
+    <span class="line"><span>Locked #general</span></span>
+    <span class="line"><span style="color:var(--cu)">to stop a fight.</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:430px;height:1060px"></div>
+  <div class="sub" id="sub0" style="top:1560px;color:var(--softDk)">That was Thursday.</div>
+</section>
+
+<!-- 1 forgot (light) -->
+<section class="shot light" id="s1">
+  <div class="head" style="top:330px;font-size:80px;line-height:1.12">
+    <span class="line"><span>Forgot to</span></span>
+    <span class="line"><span>unlock it.</span></span>
+  </div>
+  <div class="head" id="days1" style="top:640px;font-size:168px;line-height:1.1;color:var(--cud)">
+    <span class="line"><span>3 days.</span></span>
+  </div>
+  <div class="chat" id="chat1" style="top:1000px;height:370px"></div>
+</section>
+
+<!-- 2 turn (dark) -->
+<section class="shot dark" id="s2">
+  <div class="head" style="top:300px;font-size:104px;line-height:1.1">
+    <span class="line"><span>Give it</span></span>
+    <span class="line"><span style="color:var(--cu)">a timer.</span></span>
+  </div>
+  <svg class="dial" id="dial2" style="top:760px" viewBox="0 0 620 620"></svg>
+</section>
+
+<!-- 3 command (light) -->
+<section class="shot light" id="s3">
+  <div class="kicker" style="top:220px;color:var(--cud)">One command</div>
+  <div class="chat" id="chat3" style="top:300px;height:1180px"></div>
+  <div class="sub" id="sub3" style="top:1550px;color:var(--softLt)">Members can still read it.</div>
+</section>
+
+<!-- 4 ten minutes later (dark) -->
+<section class="shot dark" id="s4">
+  <div class="kicker" style="top:300px;color:var(--cu)">Ten minutes later</div>
+  <div class="clock" id="clock4" style="top:380px">21:14</div>
+  <svg class="dial" id="dial4" style="top:700px" viewBox="0 0 620 620"></svg>
+</section>
+
+<!-- 5 open again (light) -->
+<section class="shot light" id="s5">
+  <div class="kicker" style="top:250px;color:var(--cud)">It opens itself</div>
+  <div class="chat" id="chat5" style="top:320px;height:1120px"></div>
+  <div class="sub" id="sub5" style="top:1520px;color:var(--softLt)">Nobody had to remember.</div>
+</section>
+
+<!-- 6 fact (dark) -->
+<section class="shot dark" id="s6">
+  <div class="head" style="top:560px;font-size:112px;line-height:1.1">
+    <span class="line"><span>Opens</span></span>
+    <span class="line"><span style="color:var(--cu)">on time.</span></span>
+  </div>
+  <div class="rule" id="rule6" style="top:880px;background:var(--cu)"></div>
+  <div class="facts" id="facts6" style="top:930px;color:var(--frost)">
+    <span class="line"><span>Even if Kaivor restarts.</span></span>
+    <span class="line"><span style="color:var(--softDk)">1 minute to 30 days.</span></span>
+    <span class="line"><span style="color:var(--softDk)">Open it early with <span class="code">,unlock</span></span></span>
+  </div>
+</section>
+
+<!-- 7 end card (light) -->
+<section class="shot light" id="s7">
+  <img class="logo" id="logo7" src="../../assets/kaivor-logo.png" style="top:360px">
+  <div class="kicker" style="top:680px;color:var(--cud)">New in Kaivor</div>
+  <div class="head" style="top:740px;font-size:116px;line-height:1.1">
+    <span class="line"><span>Timed locks</span></span>
+  </div>
+  <div class="pills" id="pills7" style="top:930px"><span class="pill">,lock #general 10m</span></div>
+  <div class="url" style="top:1070px;color:var(--ink)" id="url7">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BEAT_FRAMES = 36;
+const BEAT = BEAT_FRAMES / FPS;           // 0.6 s, 100 BPM
+const beats = [4, 3, 2, 7, 4, 4, 4, 6];
+const names = ['hook', 'forgot', 'turn', 'command', 'later', 'open', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: 60 / BEAT, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT_FRAMES / FPS })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  sol:  { name: 'sol', bg: '#3E6F8E', i: 'S', color: '#E6A15C' },
+  teo:  { name: 'teo', bg: '#4E7A5A', i: 'T' },
+  mira: { name: 'mira', bg: '#9A5476', i: 'M' },
+  juno: { name: 'juno', bg: '#6A5A9A', i: 'J' },
+  gift: { name: 'gift_drop4821', bg: '#8A6A3A', i: 'G' },
+  bot:  { name: 'Kaivor', bot: true, app: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+const ok = (html) => `<div class="embed"><div class="st">${CHECK}<div>${html}</div></div></div>`;
+const LOCK_ICON = (c) => `<svg viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="11" rx="2" fill="${c}"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" fill="none" stroke="${c}" stroke-width="2.4"/></svg>`;
+
+// ---- Kaivor's reply, copied from aurora-bot src/commands/moderation/channel.ts ----
+// ctx.success(`Locked ${channel.toString()} until ${timestamp(endsAt, 't')} (${timestamp(endsAt, 'R')}).`)
+const CH_M = '<span class="mention">#general</span>';
+const CMD = ',lock #general 10m heated argument';
+const R_LOCK = ok(`Locked ${CH_M} until <span class="ts">21:24</span> (<span class="ts">in 10 minutes</span>).`);
+const cmdHTML = (s) => esc(s).replace('#general', '<span class="mention">#general</span>');
+
+function msgHTML(m) {
+  if (m.divider) return `<div class="divider">${m.divider}</div>`;
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  const nameStyle = u.color ? `style="color:${u.color}"` : '';
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${esc(m.text)}</div>`;
+  if (m.extra) content += m.extra;
+  return `<div class="msg">${av}<div class="body"><div class="meta"><span class="who" ${nameStyle}>${u.name}</span>${app}<span class="time">${m.time}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.headLock ? LOCK_ICON('#80848E').replace('<svg', '<svg class="lk"') : ''}${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  let input = '';
+  if (opts.locked) {
+    input = `<div class="input locked">${LOCK_ICON('#80848E')}<span class="ph">You do not have permission to send messages in this channel.</span></div>`;
+  } else {
+    const typed = opts.typed || '';
+    input = `<div class="input"><span class="plus">+</span>${typed
+      ? `<span class="typed">${cmdHTML(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+      : `<span class="ph">Message #${opts.channel}</span>`}</div>`;
+  }
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, 0.18));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+  if (opts.inputFlash !== undefined) {
+    const inp = el.querySelector('.input');
+    inp.style.opacity = String(0.35 + 0.65 * opts.inputFlash);
+  }
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.34));
+    s.style.transform = `translateY(${(1 - e) * 112}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.32));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+function typing(cmd, t, a, d) {
+  return cmd.slice(0, Math.ceil(cmd.length * inout(p(t, a, d))));
+}
+
+// padlock in a kitchen-timer dial. fill: 0..1 of the copper ring, open: 0..1 shackle lift, dark: colours for a dark bg
+function dialSVG(fill, open, dark) {
+  const C = 310, R = 270;
+  const fg = dark ? '#E6ECEE' : '#182026';
+  const accent = dark ? '#D9823F' : '#A4521B';
+  const track = dark ? '#2C343A' : '#CDD6DA';
+  let ticks = '';
+  for (let k = 0; k < 60; k++) {
+    const a = (k / 60) * 2 * Math.PI - Math.PI / 2;
+    const long = k % 5 === 0;
+    const r1 = R + 26, r2 = R + (long ? 8 : 16);
+    const on = k / 60 < fill;
+    ticks += `<line x1="${(C + r1 * Math.cos(a)).toFixed(1)}" y1="${(C + r1 * Math.sin(a)).toFixed(1)}" x2="${(C + r2 * Math.cos(a)).toFixed(1)}" y2="${(C + r2 * Math.sin(a)).toFixed(1)}" stroke="${on ? accent : track}" stroke-width="${long ? 6 : 3}" stroke-linecap="butt"/>`;
+  }
+  const circ = 2 * Math.PI * (R - 20);
+  const arc = `<circle cx="${C}" cy="${C}" r="${R - 20}" fill="none" stroke="${track}" stroke-width="22"/>` +
+    `<circle cx="${C}" cy="${C}" r="${R - 20}" fill="none" stroke="${accent}" stroke-width="22" stroke-dasharray="${(circ * fill).toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 ${C} ${C})"/>`;
+  // padlock: body 200x160, shackle above; open lifts the shackle and swings its right leg out
+  const lift = 46 * open, swing = -24 * open;
+  const shackle = `<g transform="translate(0 ${-lift}) rotate(${swing} ${C - 62} ${C - 6})"><path d="M${C - 62} ${C - 6} V${C - 62} a62 62 0 0 1 124 0 V${C - 6}" fill="none" stroke="${fg}" stroke-width="30"/></g>`;
+  const body = `<rect x="${C - 108}" y="${C - 18}" width="216" height="170" rx="18" fill="${accent}"/>` +
+    `<circle cx="${C}" cy="${C + 52}" r="20" fill="${dark ? '#1A1F23' : '#E6ECEE'}"/><rect x="${C - 8}" y="${C + 56}" width="16" height="48" rx="6" fill="${dark ? '#1A1F23' : '#E6ECEE'}"/>`;
+  return ticks + arc + shackle + body;
+}
+
+// ---- timings (seconds within the shot), on the beat grid; sound.py uses the same beats ----
+const H_LOCKMSG = B(1.5), H_LOCKED = B(2.5), H_SUB = B(3);
+const F_DAYS = B(1), F_MSG = B(1.75);
+const T_WIND = B(0.25);
+const C_T = B(0.5), C_S = B(3), C_R = B(3.75), C_SUB = B(5);
+const L_RUN = B(0.5), L_END = B(2.75), L_OPEN = B(3);
+const O_UNLOCK = B(0.5), O_M1 = B(1.5), O_M2 = B(2.5), O_M3 = B(3.25), O_SUB = B(3.5);
+window.T = { H_LOCKMSG, H_LOCKED, H_SUB, F_DAYS, F_MSG, C_S, C_R, L_END, L_OPEN, O_UNLOCK, O_M1, O_M2, O_M3, O_SUB };
+
+const S = [...document.querySelectorAll('.shot')];
+
+const HEATED = [
+  { u: 'teo', text: 'that was NOT a foul', at: -1, time: 'Thursday at 21:12' },
+  { u: 'mira', text: 'watch the replay. it was', at: -1, time: 'Thursday at 21:12' },
+  { u: 'teo', text: 'you need glasses', at: -1, time: 'Thursday at 21:13' },
+  { u: 'juno', text: 'both of you calm down', at: -1, time: 'Thursday at 21:13' },
+  { u: 'mira', text: 'HE started it', at: -1, time: 'Thursday at 21:13' },
+];
+
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, '.head', t, 0.02, 0.12);
+    const msgs = HEATED.concat([{ u: 'sol', text: 'ok. locking this for a bit', at: H_LOCKMSG, time: 'Thursday at 21:14' }]);
+    const locked = t >= H_LOCKED;
+    renderChat(document.getElementById('chat0'), t, msgs, { channel: 'general', topic: 'Pitch Side', locked, headLock: locked,
+      inputFlash: locked ? out4(p(t, H_LOCKED, 0.2)) : undefined });
+    rise('sub0', t, H_SUB);
+  } else if (shot === 1) {
+    lines(sec, '.head:not(#days1)', t, 0.0, 0.1);
+    lines(sec, '#days1', t, F_DAYS, 0);
+    renderChat(document.getElementById('chat1'), t, [
+      { u: 'gift', html: 'is <span class="mention">#general</span> ever coming back??', at: F_MSG, time: 'Today at 18:02' },
+    ], { channel: 'off-topic', topic: 'Pitch Side' });
+  } else if (shot === 2) {
+    lines(sec, '.head', t, 0.0, 0.08);
+    const e = out4(p(t, T_WIND, 0.5));
+    const dial = document.getElementById('dial2');
+    dial.innerHTML = dialSVG(e, 0, true);
+    const q = out4(p(t, 0, 0.22));
+    dial.style.transform = `scale(${1.08 - 0.08 * q})`;
+  } else if (shot === 3) {
+    const msgs = HEATED.slice(1).concat([
+      { u: 'sol', cmd: true, html: cmdHTML(CMD), at: C_S, time: 'Today at 21:14' },
+      { u: 'bot', extra: R_LOCK, at: C_R, time: 'Today at 21:14' },
+    ]).map((m) => (m.at === -1 ? { ...m, time: m.time.replace('Thursday', 'Today') } : m));
+    let typed = '', caret = false;
+    if (t >= C_T && t < C_S) { typed = typing(CMD, t, C_T, C_S - C_T - 0.1); caret = true; }
+    renderChat(document.getElementById('chat3'), t, msgs, { channel: 'general', topic: 'Pitch Side', typed, caret, headLock: t >= C_R });
+    rise('sub3', t, C_SUB);
+  } else if (shot === 4) {
+    const k = inout(p(t, L_RUN, L_END - L_RUN));
+    const min = 14 + Math.min(10, Math.floor(k * 10 + 1e-6));
+    document.getElementById('clock4').textContent = `21:${min}`;
+    document.getElementById('clock4').style.color = min === 24 ? 'var(--cu)' : 'var(--frost)';
+    const open = out4(p(t, L_OPEN, 0.22));
+    document.getElementById('dial4').innerHTML = dialSVG(1 - k, open, true);
+  } else if (shot === 5) {
+    const msgs = [
+      { u: 'sol', cmd: true, html: cmdHTML(CMD), at: -1, time: 'Today at 21:14' },
+      { u: 'bot', extra: R_LOCK, at: -1, time: 'Today at 21:14' },
+      { u: 'mira', text: 'ok. i\'m calm now', at: O_M1, time: 'Today at 21:24' },
+      { u: 'teo', text: 'fine. it was a foul', at: O_M2, time: 'Today at 21:24' },
+      { u: 'juno', text: 'gg. rematch saturday?', at: O_M3, time: 'Today at 21:25' },
+    ];
+    const locked = t < O_UNLOCK;
+    renderChat(document.getElementById('chat5'), t, msgs, { channel: 'general', topic: 'Pitch Side', locked, headLock: locked,
+      inputFlash: locked ? undefined : out4(p(t, O_UNLOCK, 0.2)) });
+    rise('sub5', t, O_SUB);
+  } else if (shot === 6) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    const r = out4(p(t, B(1), 0.34));
+    document.getElementById('rule6').style.transform = `scaleX(${r})`;
+    lines(sec, '.facts', t, B(1.25), 0.3);
+  } else if (shot === 7) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo7');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills7', t, B(1));
+    rise('url7', t, B(2));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
