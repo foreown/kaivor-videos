@@ -1,0 +1,403 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: the starboard (aurora-bot src/commands/starboard/boards.ts and src/services/starboard/index.ts; the
+  starboard tables in prisma/schema.prisma). Not a new commit: nothing showable has shipped since d62b1be, so this is
+  an older feature that had no video yet.
+  Look: "gold star chart": pistachio cream #E6E9CC and ink violet #1B1726 alternating by shot, one accent (star gold
+  #EDB740 on dark, deep gold #85570A on light). Flat gold-star stickers (a star with a darker inner star, no gradients)
+  that stamp in on the turn and fill one by one as the stars come in.
+  Shrikhand for headlines, Golos Text for the chat UI and copy, PT Mono only for commands.
+  Facts checked in aurora-bot:
+    - src/commands/starboard/boards.ts: `starboard set <channel>` (alias `starboard channel`), Manage Server, example
+        'starboard set #starboard'. Reply: ctx.success(`${title} posts will go to ${channel}, once a message gets
+        ${board.emoji} **${board.threshold}**.`) -> "Starboard posts will go to #starboard, once a message gets ⭐ **3**."
+        `starboard threshold <number>` (1 to 100), example 'starboard threshold 5'.
+    - prisma/schema.prisma model Starboard: emoji default "⭐", threshold default 3, selfStar default false,
+        showTimestamp / showJumpUrl / showAttachments / removeBelow default true.
+    - src/services/starboard/index.ts countReactors(): bots never count; the author's own reaction only counts when
+        selfStar is on (off by default). renderBoardMessage(): content `${emoji} **${count}** · <#channel>`, embed with
+        the author's display name and avatar, the message text as the description, a "Source" field
+        "#channel · [Jump to message](url)", and the original message's timestamp. Colour: board colour or
+        COLORS.default (DEFAULT_EMBED_COLOR, default #658a95, src/config/index.ts).
+    - src/framework/embeds.ts: successEmbed = COLORS.success #5BC98C, icon then the sentence.
+  "Ranked Rejects" is a made-up server; juno, teo, mira, sol, kit, rowan, nova, pixel_ate and gift_drop4821 are made-up
+  users. Sound: own sound (music/ is empty), 150 BPM (24 frames a beat); every shot is a whole number of beats (sound.py).
+-->
+<style>
+@font-face { font-family: 'Sk'; font-weight: 400; src: url('../../node_modules/@fontsource/shrikhand/files/shrikhand-latin-400-normal.woff2'); }
+@font-face { font-family: 'Gt'; font-weight: 500; src: url('../../node_modules/@fontsource/golos-text/files/golos-text-latin-500-normal.woff2'); }
+@font-face { font-family: 'Gt'; font-weight: 600; src: url('../../node_modules/@fontsource/golos-text/files/golos-text-latin-600-normal.woff2'); }
+@font-face { font-family: 'Gt'; font-weight: 700; src: url('../../node_modules/@fontsource/golos-text/files/golos-text-latin-700-normal.woff2'); }
+@font-face { font-family: 'Pm'; font-weight: 400; src: url('../../node_modules/@fontsource/pt-mono/files/pt-mono-latin-400-normal.woff2'); }
+
+:root { --vio: #1B1726; --pis: #E6E9CC; --ink: #211E2B; --gold: #EDB740; --goldd: #85570A; --softLt: #5F6152; --softDk: #A39DB3; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--pis); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--vio); color: var(--pis); }
+.light { background: var(--pis); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Sk'; font-weight: 400; }
+.line { display: block; overflow: hidden; padding: 0.04em 0 0.2em; margin-bottom: -0.14em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Gt'; font-weight: 700; font-size: 34px; letter-spacing: 0.2em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; padding-left: 0.2em; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Gt'; font-weight: 700; font-size: 46px; line-height: 1.3; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Gt'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 600; }
+.chat .top .name { font-size: 34px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 26px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 600; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 24px; padding: 12px 32px; overflow: hidden; }
+.msg.hl { background: rgba(237, 183, 64, 0.10); box-shadow: inset 6px 0 0 #EDB740; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 34px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: center; gap: 12px; }
+.who { font-size: 34px; font-weight: 700; color: #F2F3F5; }
+.app { font-size: 19px; font-weight: 700; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; }
+.time { font-size: 24px; color: #949BA4; font-weight: 600; }
+.text { font-size: 37px; line-height: 1.36; color: #DBDEE1; margin-top: 3px; font-weight: 500; }
+.text.cmd { font-family: 'Pm'; font-weight: 400; font-size: 33px; line-height: 1.45; }
+.text b { font-weight: 700; color: #F2F3F5; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 5px; font-weight: 600; font-family: 'Gt'; }
+.embed { margin-top: 8px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 26px 22px; max-width: 830px; font-size: 34px; line-height: 1.38; font-weight: 500; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 38px; height: 38px; flex: none; margin-top: 5px; }
+.emo { display: inline-block; width: 1.1em; height: 1.1em; vertical-align: -0.2em; }
+.react { display: inline-flex; align-items: center; gap: 10px; margin-top: 10px; padding: 6px 16px 6px 12px; border-radius: 10px;
+         background: #2B2D31; border: 2px solid transparent; font-size: 30px; font-weight: 700; color: #DBDEE1; }
+.react svg { width: 36px; height: 36px; }
+.react.me { background: rgba(88, 101, 242, 0.18); border-color: #5865F2; color: #DEE0FC; }
+
+/* the board post */
+.sb { border-left-color: #658A95; padding: 22px 28px 22px; }
+.sb .au { display: flex; align-items: center; gap: 14px; font-size: 30px; font-weight: 700; color: #F2F3F5; }
+.sb .au .mini { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; color: #fff; }
+.sb .desc { margin-top: 12px; font-size: 35px; color: #DBDEE1; }
+.sb .fname { margin-top: 16px; font-size: 27px; font-weight: 700; color: #F2F3F5; }
+.sb .fval { font-size: 31px; }
+.sb .link { color: #00A8FC; }
+.sb .foot { margin-top: 16px; font-size: 24px; color: #B5BAC1; font-weight: 600; }
+
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 31px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 500; }
+.typed { font-family: 'Pm'; font-weight: 400; font-size: 33px; color: #DBDEE1; line-height: 1.4; }
+.caret { display: inline-block; width: 3px; height: 34px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* gold-star stickers */
+.bigstar { position: absolute; left: 50%; width: 560px; height: 560px; margin-left: -280px; }
+.row3 { position: absolute; left: 0; right: 0; display: flex; justify-content: center; gap: 70px; }
+.slot { width: 220px; text-align: center; }
+.slot svg { width: 200px; height: 200px; display: block; margin: 0 auto; }
+.slot .nm { font-family: 'Gt'; font-weight: 700; font-size: 40px; margin-top: 10px; }
+.count { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Sk'; font-size: 200px; line-height: 1; }
+
+.rule { position: absolute; left: 50%; width: 520px; margin-left: -260px; height: 8px; }
+.facts { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Gt'; font-weight: 700; font-size: 46px; line-height: 1.45; }
+.facts .code { font-family: 'Pm'; font-weight: 400; color: var(--gold); }
+
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Pm'; font-weight: 400; font-size: 44px; background: var(--vio); color: var(--pis); padding: 18px 36px; white-space: nowrap; border-radius: 12px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Gt'; font-weight: 700; font-size: 104px; letter-spacing: -0.01em; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (dark) -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:130px;font-size:86px;line-height:1.08">
+    <span class="line"><span>Funniest message</span></span>
+    <span class="line"><span style="color:var(--gold)">all week.</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:400px;height:1180px"></div>
+  <div class="sub" id="sub0" style="top:1650px;color:var(--softDk)">Then the chat kept going.</div>
+</section>
+
+<!-- 1 buried (light) -->
+<section class="shot light" id="s1">
+  <div class="head" style="top:540px;font-size:128px;line-height:1.05">
+    <span class="line"><span>Buried</span></span>
+    <span class="line"><span style="color:var(--goldd)">in 2 minutes.</span></span>
+  </div>
+  <div class="sub" id="sub1" style="top:1010px;color:var(--softLt)">Nobody scrolls up that far.</div>
+</section>
+
+<!-- 2 turn (dark) -->
+<section class="shot dark" id="s2">
+  <div class="head" style="top:300px;font-size:120px;line-height:1.05">
+    <span class="line"><span>Give it</span></span>
+    <span class="line"><span style="color:var(--gold)">a star.</span></span>
+  </div>
+  <svg class="bigstar" id="star2" style="top:800px" viewBox="0 0 560 560"></svg>
+</section>
+
+<!-- 3 command (light) -->
+<section class="shot light" id="s3">
+  <div class="kicker" style="top:220px;color:var(--goldd)">One command</div>
+  <div class="chat" id="chat3" style="top:300px;height:1180px"></div>
+  <div class="sub" id="sub3" style="top:1550px;color:var(--softLt)">3 stars and it's in.</div>
+</section>
+
+<!-- 4 the stars come in (dark) -->
+<section class="shot dark" id="s4">
+  <div class="kicker" style="top:200px;color:var(--gold)">Back in #general</div>
+  <div class="chat" id="chat4" style="top:280px;height:660px"></div>
+  <div class="count" id="count4" style="top:1040px;color:var(--gold)">0</div>
+  <div class="row3" id="row4" style="top:1310px"></div>
+</section>
+
+<!-- 5 on the board (light) -->
+<section class="shot light" id="s5">
+  <div class="kicker" style="top:360px;color:var(--goldd)">Kaivor posts it</div>
+  <div class="chat" id="chat5" style="top:440px;height:800px"></div>
+  <div class="sub" id="sub5" style="top:1320px;color:var(--softLt)">Now everyone can find it.</div>
+</section>
+
+<!-- 6 fact (dark) -->
+<section class="shot dark" id="s6">
+  <div class="head" style="top:520px;font-size:108px;line-height:1.08">
+    <span class="line"><span>Your own star</span></span>
+    <span class="line"><span style="color:var(--gold)">doesn't count.</span></span>
+  </div>
+  <div class="rule" id="rule6" style="top:880px;background:var(--gold)"></div>
+  <div class="facts" id="facts6" style="top:930px;color:var(--pis)">
+    <span class="line"><span>Bots don't either.</span></span>
+    <span class="line"><span style="color:var(--softDk)">Want it harder to get in?</span></span>
+    <span class="line"><span><span class="code">,starboard threshold 5</span></span></span>
+  </div>
+</section>
+
+<!-- 7 end card (light) -->
+<section class="shot light" id="s7">
+  <img class="logo" id="logo7" src="../../assets/kaivor-logo.png" style="top:360px">
+  <div class="kicker" style="top:680px;color:var(--goldd)">Built into Kaivor</div>
+  <div class="head" style="top:735px;font-size:124px;line-height:1.08">
+    <span class="line"><span>Starboard</span></span>
+  </div>
+  <div class="pills" id="pills7" style="top:950px"><span class="pill">,starboard set #starboard</span></div>
+  <div class="url" style="top:1090px;color:var(--ink)" id="url7">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BEAT_FRAMES = 24;
+const BEAT = BEAT_FRAMES / FPS;           // 0.4 s, 150 BPM
+const beats = [6, 4, 3, 7, 7, 7, 6, 8];
+const names = ['hook', 'buried', 'turn', 'command', 'stars', 'board', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: 60 / BEAT, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT_FRAMES / FPS })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  juno:  { name: 'juno', bg: '#B0653F', i: 'J' },
+  teo:   { name: 'teo', bg: '#4E7A5A', i: 'T' },
+  mira:  { name: 'mira', bg: '#9A5476', i: 'M' },
+  sol:   { name: 'sol', bg: '#3E6F8E', i: 'S', color: '#E8C15A' },
+  kit:   { name: 'kit', bg: '#5A6A9A', i: 'K' },
+  rowan: { name: 'rowan', bg: '#7A5A8E', i: 'R' },
+  nova:  { name: 'nova', bg: '#3F8A86', i: 'N' },
+  pix:   { name: 'pixel_ate', bg: '#8E6A3E', i: 'P' },
+  gift:  { name: 'gift_drop4821', bg: '#6E7B3A', i: 'G' },
+  bot:   { name: 'Kaivor', bot: true, app: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+const ok = (html) => `<div class="embed"><div class="st">${CHECK}<div>${html}</div></div></div>`;
+
+// a five-point star path centred on (cx, cy)
+function starPath(cx, cy, R, r, rot = 0) {
+  let d = '';
+  for (let k = 0; k < 10; k++) {
+    const a = -Math.PI / 2 + (k * Math.PI) / 5 + rot;
+    const rr = k % 2 === 0 ? R : r;
+    d += (k ? 'L' : 'M') + (cx + rr * Math.cos(a)).toFixed(1) + ' ' + (cy + rr * Math.sin(a)).toFixed(1);
+  }
+  return d + 'Z';
+}
+// the chat's star emoji, drawn flat (our own drawing)
+const EMO = `<svg class="emo" viewBox="0 0 24 24"><path d="${starPath(12, 12.6, 11.4, 5.2)}" fill="#FFC93C" stroke="#F4A51C" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
+// gold-star sticker: gold star, darker inner star, a flat cut highlight. state: 0 = empty outline, 1 = stuck on
+function stickerSVG(size, fill, dark) {
+  const c = size / 2, R = size * 0.47, r = R * 0.47;
+  const gold = '#EDB740', deep = '#C98C1A', line = dark ? '#4A4360' : '#B9BC9E';
+  if (fill <= 0) return `<path d="${starPath(c, c * 1.04, R, r)}" fill="none" stroke="${line}" stroke-width="${size * 0.02}" stroke-linejoin="round" stroke-dasharray="${size * 0.04} ${size * 0.03}"/>`;
+  return `<path d="${starPath(c, c * 1.04, R, r)}" fill="${gold}" stroke="${deep}" stroke-width="${size * 0.018}" stroke-linejoin="round"/>` +
+    `<path d="${starPath(c, c * 1.04, R * 0.55, r * 0.55)}" fill="${deep}"/>` +
+    `<path d="${starPath(c, c * 1.04, R * 0.55, r * 0.55)}" fill="${gold}" transform="translate(${-size * 0.012} ${-size * 0.014})" opacity="0.55"/>`;
+}
+
+// ---- Kaivor's replies, copied from aurora-bot ----
+// src/commands/starboard/boards.ts: ctx.success(`${spec.title} posts will go to ${channel}, once a message gets ${board.emoji} **${board.threshold}**.`)
+const CMD = ',starboard set #starboard';
+const R_SET = ok(`Starboard posts will go to <span class="mention">#starboard</span>, once a message gets ${EMO} <b>3</b>.`);
+const cmdHTML = (s) => esc(s).replace('#starboard', '<span class="mention">#starboard</span>');
+const FUNNY = 'my mom just asked who "gg" is and why he wins every game';
+// src/services/starboard/index.ts renderBoardMessage(): `${emoji} **${count}** · <#channel>` + the embed
+const boardPost = (count) => `<div class="text">${EMO} <b>${count}</b> · <span class="mention">#general</span></div>` +
+  `<div class="embed sb"><div class="au"><span class="mini" style="background:${U.juno.bg}">J</span>juno</div>` +
+  `<div class="desc">${esc(FUNNY)}</div><div class="fname">Source</div>` +
+  `<div class="fval"><span class="mention">#general</span> · <span class="link">Jump to message</span></div>` +
+  `<div class="foot">Today at 21:07</div></div>`;
+
+function msgHTML(m) {
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  const nameStyle = u.color ? `style="color:${u.color}"` : '';
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${esc(m.text)}</div>`;
+  if (m.extra) content += m.extra;
+  return `<div class="msg${m.hl ? ' hl' : ''}">${av}<div class="body"><div class="meta"><span class="who" ${nameStyle}>${u.name}</span>${app}<span class="time">${m.time}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  const typed = opts.typed || '';
+  const input = `<div class="input"><span class="plus">+</span>${typed
+    ? `<span class="typed">${cmdHTML(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+    : `<span class="ph">Message #${opts.channel}</span>`}</div>`;
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${opts.noInput ? '' : input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, opts.slide || 0.18));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.34));
+    s.style.transform = `translateY(${(1 - e) * 115}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.32));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+function typing(cmd, t, a, d) {
+  return cmd.slice(0, Math.ceil(cmd.length * inout(p(t, a, d))));
+}
+
+// ---- timings (seconds within the shot), on the beat grid; sound.py uses the same beats ----
+const H_FUNNY = B(0.5), H_FLOOD = B(2.5), H_FLOOD_GAP = B(0.25);   // 11 flood messages, one every quarter beat
+const U_SUB = B(2);
+const T_STAMP = B(0.5);
+const C_T = B(0.5), C_S = B(3), C_R = B(3.75), C_SUB = B(5);
+const S_STARS = [B(1), B(2.5), B(4)];
+const P_POST = B(0.5), P_SUB = B(3.5);
+window.T = { H_FUNNY, H_FLOOD, H_FLOOD_GAP, U_SUB, T_STAMP, C_S, C_R, S_STARS, P_POST, P_SUB };
+
+const S = [...document.querySelectorAll('.shot')];
+
+const BEFORE = [
+  { u: 'nova', text: 'who keeps leaving the voice call', at: -1, time: 'Today at 21:03' },
+  { u: 'rowan', text: 'not me', at: -1, time: 'Today at 21:03' },
+  { u: 'mira', text: 'it was rowan', at: -1, time: 'Today at 21:04' },
+  { u: 'pix', text: 'my mic died ok', at: -1, time: 'Today at 21:04' },
+  { u: 'kit', text: 'anyone up for ranked later', at: -1, time: 'Today at 21:05' },
+  { u: 'teo', text: 'after dinner', at: -1, time: 'Today at 21:06' },
+];
+const FUNNY_MSG = { u: 'juno', text: FUNNY, time: 'Today at 21:07' };
+const FLOOD = [
+  ['rowan', 'LMAO'], ['nova', 'who wants to queue'], ['pix', 'need 1 for ranked'], ['gift', 'invite me'],
+  ['kit', 'patch notes are out'], ['teo', 'the new map is so bad'], ['mira', 'brb food'], ['rowan', 'queue?'],
+  ['nova', 'ok who took my spot'], ['pix', 'gg'], ['gift', 'did anyone see the clip'],
+];
+
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, '.head', t, 0.02, 0.12);
+    const msgs = BEFORE.concat([{ ...FUNNY_MSG, at: H_FUNNY, hl: true }],
+      FLOOD.map(([u, text], i) => ({ u, text, at: H_FLOOD + i * H_FLOOD_GAP, time: i < 6 ? 'Today at 21:08' : 'Today at 21:09' })));
+    renderChat(document.getElementById('chat0'), t, msgs, { channel: 'general', topic: 'Ranked Rejects', slide: 0.12 });
+    rise('sub0', t, H_FLOOD);
+  } else if (shot === 1) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    rise('sub1', t, U_SUB);
+  } else if (shot === 2) {
+    lines(sec, '.head', t, 0.0, 0.08);
+    const e = out4(p(t, T_STAMP, 0.22));
+    const star = document.getElementById('star2');
+    star.innerHTML = e > 0 ? stickerSVG(560, 1, true) : stickerSVG(560, 0, true);
+    star.style.transform = e > 0 ? `scale(${1.3 - 0.3 * e}) rotate(${-8 + 8 * e}deg)` : 'none';
+    star.style.opacity = e > 0 ? String(Math.min(1, e * 3)) : '1';
+  } else if (shot === 3) {
+    const msgs = [
+      { u: 'rowan', text: 'what gg message', at: -1, time: 'Today at 21:10' },
+      { u: 'juno', text: 'scroll up. good luck', at: -1, time: 'Today at 21:10' },
+      { u: 'kit', text: 'wait what did juno say', at: -1, time: 'Today at 21:10' },
+      { u: 'mira', text: 'juno\'s gg message is gone already', at: -1, time: 'Today at 21:10' },
+      { u: 'teo', text: 'we need a place for the good ones', at: -1, time: 'Today at 21:10' },
+      { u: 'sol', cmd: true, html: cmdHTML(CMD), at: C_S, time: 'Today at 21:11' },
+      { u: 'bot', extra: R_SET, at: C_R, time: 'Today at 21:11' },
+    ];
+    let typed = '', caret = false;
+    if (t >= C_T && t < C_S) { typed = typing(CMD, t, C_T, C_S - C_T - 0.1); caret = true; }
+    renderChat(document.getElementById('chat3'), t, msgs, { channel: 'staff', topic: 'Ranked Rejects', typed, caret });
+    rise('sub3', t, C_SUB);
+  } else if (shot === 4) {
+    const n = S_STARS.filter((a) => t >= a).length;
+    const reacted = n > 0 ? `<div class="react${n >= 3 ? ' me' : ''}">${EMO.replace('class="emo"', '')}<span>${n}</span></div>` : '';
+    renderChat(document.getElementById('chat4'), t, [
+      { u: 'kit', text: 'anyone up for ranked later', at: -1, time: 'Today at 21:05' },
+      { u: 'teo', text: 'after dinner', at: -1, time: 'Today at 21:06' },
+      { ...FUNNY_MSG, at: -1, hl: true, extra: reacted },
+    ], { channel: 'general', topic: 'Ranked Rejects', noInput: true });
+    const cnt = document.getElementById('count4');
+    cnt.textContent = String(n);
+    const last = n ? S_STARS[n - 1] : -1;
+    const q = n ? out4(p(t, last, 0.2)) : 1;
+    cnt.style.transform = `scale(${1.25 - 0.25 * q})`;
+    const who = ['teo', 'mira', 'sol'];
+    document.getElementById('row4').innerHTML = who.map((w, i) => {
+      const on = t >= S_STARS[i];
+      return `<div class="slot"><svg viewBox="0 0 200 200" style="transform:${on ? `scale(${1.3 - 0.3 * out4(p(t, S_STARS[i], 0.2))}) rotate(${(i - 1) * 7}deg)` : `rotate(${(i - 1) * 7}deg)`}">${stickerSVG(200, on ? 1 : 0, true)}</svg>` +
+        `<div class="nm" style="color:${on ? 'var(--pis)' : '#4A4360'}">${w}</div></div>`;
+    }).join('');
+  } else if (shot === 5) {
+    const msgs = [
+      { u: 'bot', extra: boardPost(3), at: P_POST, time: 'Today at 21:12' },
+    ];
+    renderChat(document.getElementById('chat5'), t, msgs, { channel: 'starboard', topic: 'Ranked Rejects', slide: 0.24 });
+    rise('sub5', t, P_SUB);
+  } else if (shot === 6) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    const r = out4(p(t, B(1.5), 0.34));
+    document.getElementById('rule6').style.transform = `scaleX(${r})`;
+    lines(sec, '.facts', t, B(2), B(1));
+  } else if (shot === 7) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo7');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills7', t, B(1));
+    rise('url7', t, B(2));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
