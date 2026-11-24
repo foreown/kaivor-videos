@@ -1,0 +1,370 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: levels with role rewards (aurora-bot src/commands/levels/config.ts, src/commands/levels/rewards.ts,
+  src/services/levels/index.ts, src/services/levels/curve.ts, prisma/schema.prisma model LevelConfig). Not a new commit:
+  nothing showable has shipped since d62b1be, so this is an older feature that had no video yet (latest reward change
+  66d21d8, "Restore level rewards on rejoin").
+  Look: "growth chart": warm putty #DDD8CE and plum-brown #261A20 alternating by shot, one accent (sprout green #6DBE45
+  on dark, deep sprout #3A7D1E on light). A flat door-frame board whose pencil height marks climb 1 to 10 on the turn,
+  the top mark named "teo" like a family growth chart. Caprasimo for headlines, Sofia Sans for the chat UI and copy,
+  Anonymous Pro only for commands.
+  Facts checked in aurora-bot:
+    - src/commands/levels/config.ts `levels unlock` (alias `levels enable`), Manage Server. Reply:
+        ctx.success(`Leveling is now **enabled**. Set up rewards with \`${ctx.prefix}levels add <level> <role>\`.`)
+    - src/commands/levels/rewards.ts `levels add <level> <role>` (alias `levels reward add`), Manage Server, example
+        'levels add 10 @Active'. Reply: ctx.success(`${role.toString()} will be granted at level **${level}**.`)
+    - prisma/schema.prisma LevelConfig: enabled default false, message default "{user.mention} is now level **{level}**",
+        messageMode default CONTEXT (posted in the channel the XP was earned in), cooldownSec default 60, rate 1.0.
+    - src/services/levels/index.ts onLevelUp(): syncRewards() grants the reward roles, then announce() sends the message.
+        claimCooldown(): XP at most once per cooldown (60 s by default) per member.
+    - src/services/levels/curve.ts MIN_MESSAGE_XP 15, MAX_MESSAGE_XP 25 (config.ts setrate: "15–25 XP per message before
+        scaling"). Level 10 takes 4,675 XP, so "a few weeks later" is honest for an active member.
+    - src/framework/embeds.ts: successEmbed = COLORS.success #5BC98C, icon then the sentence.
+  "Quiz Night" is a made-up server; teo, gift_drop4821, sol, mira, kit, nova and rowan are made-up users.
+  Sound: own sound (music/ is empty), 105.88 BPM (34 frames a beat); every shot is a whole number of beats (sound.py).
+-->
+<style>
+@font-face { font-family: 'Cp'; font-weight: 400; src: url('../../node_modules/@fontsource/caprasimo/files/caprasimo-latin-400-normal.woff2'); }
+@font-face { font-family: 'Sf'; font-weight: 500; src: url('../../node_modules/@fontsource/sofia-sans/files/sofia-sans-latin-500-normal.woff2'); }
+@font-face { font-family: 'Sf'; font-weight: 600; src: url('../../node_modules/@fontsource/sofia-sans/files/sofia-sans-latin-600-normal.woff2'); }
+@font-face { font-family: 'Sf'; font-weight: 700; src: url('../../node_modules/@fontsource/sofia-sans/files/sofia-sans-latin-700-normal.woff2'); }
+@font-face { font-family: 'Sf'; font-weight: 800; src: url('../../node_modules/@fontsource/sofia-sans/files/sofia-sans-latin-800-normal.woff2'); }
+@font-face { font-family: 'Ap'; font-weight: 400; src: url('../../node_modules/@fontsource/anonymous-pro/files/anonymous-pro-latin-400-normal.woff2'); }
+@font-face { font-family: 'Ap'; font-weight: 700; src: url('../../node_modules/@fontsource/anonymous-pro/files/anonymous-pro-latin-700-normal.woff2'); }
+
+:root { --plum: #261A20; --putty: #DDD8CE; --ink: #2A2226; --sprout: #6DBE45; --sproutd: #3A7D1E; --softLt: #6B645E; --softDk: #AE9DA5; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--putty); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--plum); color: var(--putty); }
+.light { background: var(--putty); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Cp'; font-weight: 400; letter-spacing: -0.005em; }
+.line { display: block; overflow: hidden; padding: 0.04em 0 0.2em; margin-bottom: -0.14em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Sf'; font-weight: 800; font-size: 36px; letter-spacing: 0.22em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; padding-left: 0.22em; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Sf'; font-weight: 700; font-size: 50px; line-height: 1.25; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Sf'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 600; }
+.chat .top .name { font-size: 36px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 28px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 600; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 24px; padding: 12px 32px; overflow: hidden; }
+.msg.hl { background: rgba(240, 177, 50, 0.10); box-shadow: inset 6px 0 0 #F0B132; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 36px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: center; gap: 12px; }
+.who { font-size: 36px; font-weight: 700; color: #F2F3F5; }
+.app { font-size: 20px; font-weight: 800; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; }
+.time { font-size: 25px; color: #949BA4; font-weight: 600; }
+.text { font-size: 39px; line-height: 1.34; color: #DBDEE1; margin-top: 3px; font-weight: 500; }
+.text.cmd { font-family: 'Ap'; font-weight: 400; font-size: 37px; line-height: 1.4; }
+.text b, .embed b { font-weight: 800; color: #F2F3F5; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 5px; font-weight: 700; font-family: 'Sf'; }
+.rmention { background: rgba(109, 190, 69, 0.18); color: #7FCB59; border-radius: 4px; padding: 0 5px; font-weight: 700; font-family: 'Sf'; }
+.code { font-family: 'Ap'; font-weight: 400; font-size: 0.9em; background: #1E1F22; border-radius: 5px; padding: 1px 7px; color: #DBDEE1; }
+.embed { margin-top: 8px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 26px 22px; max-width: 840px; font-size: 36px; line-height: 1.38; font-weight: 500; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 40px; height: 40px; flex: none; margin-top: 4px; }
+
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 33px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 500; }
+.typed { font-family: 'Ap'; font-weight: 400; font-size: 37px; color: #DBDEE1; line-height: 1.4; }
+.caret { display: inline-block; width: 3px; height: 36px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* profile cards */
+.pcard { position: absolute; left: 50%; width: 720px; margin-left: -360px; background: #232428; border-radius: 14px; overflow: hidden; font-family: 'Sf'; color: #DBDEE1; }
+.pcard .ban { height: 120px; }
+.pcard .pav { position: absolute; left: 40px; top: 52px; width: 150px; height: 150px; border-radius: 50%; border: 10px solid #232428;
+              display: flex; align-items: center; justify-content: center; font-size: 62px; font-weight: 800; color: #fff; }
+.pcard .pin { padding: 92px 44px 36px; }
+.pcard .pn { font-size: 56px; font-weight: 800; color: #F2F3F5; }
+.pcard .lab { font-size: 26px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: #B5BAC1; margin-top: 22px; }
+.pcard .val { font-size: 38px; font-weight: 600; color: #DBDEE1; margin-top: 4px; }
+.pcard .none { color: #80848E; }
+.rpill { display: inline-flex; align-items: center; gap: 12px; background: #2E3035; border-radius: 8px; padding: 10px 22px 10px 16px; font-size: 38px; font-weight: 700; color: #DBDEE1; margin-top: 8px; }
+.rpill i { width: 26px; height: 26px; border-radius: 50%; background: #6DBE45; display: inline-block; }
+
+/* the growth chart */
+.frame { position: absolute; left: 50%; width: 360px; margin-left: -180px; }
+.pair { position: absolute; left: 0; right: 0; }
+
+.rule { position: absolute; left: 50%; width: 520px; margin-left: -260px; height: 8px; }
+.facts { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Sf'; font-weight: 700; font-size: 52px; line-height: 1.42; }
+
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Ap'; font-weight: 400; font-size: 48px; background: var(--putty); color: var(--ink); padding: 18px 38px; white-space: nowrap; border-radius: 12px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Sf'; font-weight: 800; font-size: 108px; letter-spacing: -0.01em; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (dark) -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:110px;font-size:104px;line-height:1.06">
+    <span class="line"><span>2 years here.</span></span>
+    <span class="line"><span style="color:var(--sprout)">Looks brand new.</span></span>
+  </div>
+  <div id="cardA" class="pcard" style="top:420px"></div>
+  <div id="cardB" class="pcard" style="top:1040px"></div>
+  <div class="sub" id="sub0" style="top:1660px;color:var(--softDk)">One of them joined today.</div>
+</section>
+
+<!-- 1 problem (light) -->
+<section class="shot light" id="s1">
+  <div class="head" style="top:600px;font-size:124px;line-height:1.06">
+    <span class="line"><span>Nothing shows</span></span>
+    <span class="line"><span style="color:var(--sproutd)">who stuck around.</span></span>
+  </div>
+</section>
+
+<!-- 2 turn (dark) -->
+<section class="shot dark" id="s2">
+  <div class="head" style="top:180px;font-size:124px;line-height:1.05">
+    <span class="line"><span>Let them</span></span>
+    <span class="line"><span style="color:var(--sprout)">level up.</span></span>
+  </div>
+  <svg class="frame" id="frame2" style="top:560px" viewBox="0 0 360 1100" width="360" height="1100"></svg>
+</section>
+
+<!-- 3 commands (light) -->
+<section class="shot light" id="s3">
+  <div class="kicker" style="top:200px;color:var(--sproutd)">Two commands</div>
+  <div class="chat" id="chat3" style="top:280px;height:1180px"></div>
+  <div class="sub" id="sub3" style="top:1540px;color:var(--softLt)">Reach level 10, get the role.</div>
+</section>
+
+<!-- 4 result (dark) -->
+<section class="shot dark" id="s4">
+  <div class="kicker" style="top:150px;color:var(--sprout)">A few weeks later</div>
+  <div class="chat" id="chat4" style="top:230px;height:700px"></div>
+  <div id="card4" class="pcard" style="top:1010px"></div>
+  <div class="sub" id="sub4" style="top:1680px;color:var(--softDk)">Nobody had to hand it out.</div>
+</section>
+
+<!-- 5 fact (light) -->
+<section class="shot light" id="s5">
+  <div class="head" style="top:520px;font-size:120px;line-height:1.06">
+    <span class="line"><span>Spamming</span></span>
+    <span class="line"><span style="color:var(--sproutd)">won't help.</span></span>
+  </div>
+  <div class="rule" id="rule5" style="top:900px;background:var(--sproutd)"></div>
+  <div class="facts" id="facts5" style="top:950px;color:var(--ink)">
+    <span class="line"><span>XP counts once a minute,</span></span>
+    <span class="line"><span style="color:var(--softLt)">15 to 25 for each message.</span></span>
+  </div>
+</section>
+
+<!-- 6 end card (dark) -->
+<section class="shot dark" id="s6">
+  <img class="logo" id="logo6" src="../../assets/kaivor-logo.png" style="top:380px">
+  <div class="kicker" style="top:700px;color:var(--sprout)">Built into Kaivor</div>
+  <div class="head" style="top:755px;font-size:132px;line-height:1.08">
+    <span class="line"><span>Level rewards</span></span>
+  </div>
+  <div class="pills" id="pills6" style="top:985px"><span class="pill">,levels add 10 @Regulars</span></div>
+  <div class="url" style="top:1130px;color:var(--putty)" id="url6">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BEAT_FRAMES = 34;
+const BEAT = BEAT_FRAMES / FPS;           // 0.5667 s, 105.88 BPM
+const beats = [5, 3, 4, 7, 8, 5, 5];
+const names = ['hook', 'problem', 'turn', 'commands', 'result', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: 60 / BEAT, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT_FRAMES / FPS })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  teo:   { name: 'teo', bg: '#4E7A8A', i: 'T' },
+  gift:  { name: 'gift_drop4821', bg: '#8A6A3E', i: 'G' },
+  sol:   { name: 'sol', bg: '#7A4E6A', i: 'S', color: '#E39A5B' },
+  mira:  { name: 'mira', bg: '#9A5466', i: 'M' },
+  kit:   { name: 'kit', bg: '#5A6A9A', i: 'K' },
+  nova:  { name: 'nova', bg: '#3F7F72', i: 'N' },
+  rowan: { name: 'rowan', bg: '#6E5A8E', i: 'R' },
+  bot:   { name: 'Kaivor', bot: true, app: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+const ok = (html) => `<div class="embed"><div class="st">${CHECK}<div>${html}</div></div></div>`;
+
+// ---- Kaivor's replies, copied from aurora-bot ----
+// src/commands/levels/config.ts: ctx.success(`Leveling is now **enabled**. Set up rewards with \`${ctx.prefix}levels add <level> <role>\`.`)
+const CMD1 = ',levels unlock';
+const R_UNLOCK = ok(`Leveling is now <b>enabled</b>. Set up rewards with <span class="code">${esc(',levels add <level> <role>')}</span>.`);
+// src/commands/levels/rewards.ts: ctx.success(`${role.toString()} will be granted at level **${level}**.`)
+const CMD2 = ',levels add 10 @Regulars';
+const R_ADD = ok(`<span class="rmention">@Regulars</span> will be granted at level <b>10</b>.`);
+const cmdHTML = (s) => esc(s).replace('@Regulars', '<span class="rmention">@Regulars</span>');
+// prisma LevelConfig.message default: "{user.mention} is now level **{level}**", sent in the same channel (CONTEXT)
+const LEVEL_UP = `<span class="mention">@teo</span> is now level <b>10</b>`;
+
+function msgHTML(m) {
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  const col = m.color || u.color;
+  const nameStyle = col ? `style="color:${col}"` : '';
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${esc(m.text)}</div>`;
+  if (m.extra) content += m.extra;
+  return `<div class="msg${m.hl ? ' hl' : ''}">${av}<div class="body"><div class="meta"><span class="who" ${nameStyle}>${u.name}</span>${app}<span class="time">${m.time}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  const typed = opts.typed || '';
+  const input = `<div class="input"><span class="plus">+</span>${typed
+    ? `<span class="typed">${cmdHTML(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+    : `<span class="ph">Message #${opts.channel}</span>`}</div>`;
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${opts.noInput ? '' : input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, opts.slide || 0.2));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+function cardHTML(u, since, roleOn, banner, nameColor) {
+  const roles = roleOn > 0
+    ? `<span class="rpill" style="opacity:${Math.min(1, roleOn * 2)};transform:scale(${1.18 - 0.18 * roleOn})"><i></i>Regulars</span>`
+    : `<div class="val none">No roles</div>`;
+  return `<div class="ban" style="background:${banner}"></div><div class="pav" style="background:${u.bg}">${u.i}</div>` +
+    `<div class="pin"><div class="pn" style="color:${nameColor || '#F2F3F5'}">${u.name}</div>` +
+    `<div class="lab">Member since</div><div class="val">${since}</div>` +
+    `<div class="lab">Roles</div>${roles}</div>`;
+}
+
+// the door-frame growth chart: a flat board with pencil height marks 1..10, the top one named
+function frameSVG(n, lastE, dark) {
+  const W = 360, H = 1100, bx = 70, bw = 220;
+  const board = dark ? '#DDD8CE' : '#CFC8BA';
+  let s = `<rect x="${bx}" y="0" width="${bw}" height="${H}" fill="${board}"/>` +
+    `<rect x="${bx + 18}" y="0" width="5" height="${H}" fill="#C3BBAD"/>` +
+    `<rect x="${bx + bw - 23}" y="0" width="5" height="${H}" fill="#C3BBAD"/>`;
+  for (let k = 1; k <= 10; k++) {
+    if (k > n) break;
+    const y = H - 30 - (k - 1) * 112;
+    const e = k === n ? lastE : 1;
+    const top = k === 10;
+    const len = (top ? 168 : 120) * e;
+    const col = top ? '#3A7D1E' : '#4A4246';
+    const sw = top ? 9 : 6;
+    s += `<line x1="${bx + 26}" y1="${y}" x2="${bx + 26 + len}" y2="${y + (k % 2 ? -2 : 2) * e}" stroke="${col}" stroke-width="${sw}" stroke-linecap="round"/>`;
+    s += `<text x="${bx + 30}" y="${y - 16}" font-family="Sf" font-weight="800" font-size="${top ? 46 : 34}" fill="${col}" opacity="${e}">${k}</text>`;
+    if (top) s += `<text x="${bx + 96}" y="${y - 16}" font-family="Sf" font-weight="700" font-size="40" fill="${col}" opacity="${e}">teo</text>`;
+  }
+  return s;
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.34));
+    s.style.transform = `translateY(${(1 - e) * 115}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.32));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+function typing(cmd, t, a, d) {
+  return cmd.slice(0, Math.ceil(cmd.length * inout(p(t, a, d))));
+}
+
+// ---- timings (seconds within the shot), on the beat grid; sound.py uses the same beats ----
+const H_A = B(1), H_B = B(1.5), H_SUB = B(3);
+const T_MARK0 = B(0.5), T_MARK_GAP = B(0.25);       // 10 marks, one every quarter beat -> last at 2.75
+const C_S1 = B(0.5), C_R1 = B(1.25), C_T2 = B(1.75), C_S2 = B(3.75), C_R2 = B(4.5), C_SUB = B(5.5);
+const R_TEO = B(1), R_UP = B(2), R_ROLE = B(2.5), R_SUB = B(5);
+window.T = { H_A, H_B, H_SUB, T_MARK0, T_MARK_GAP, C_S1, C_R1, C_T2, C_S2, C_R2, R_TEO, R_UP, R_ROLE, R_SUB };
+
+const S = [...document.querySelectorAll('.shot')];
+
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, '.head', t, 0.02, 0.12);
+    const a = document.getElementById('cardA'), b = document.getElementById('cardB');
+    a.innerHTML = cardHTML(U.teo, '12 Nov 2024', 0, '#3B5560');
+    b.innerHTML = cardHTML(U.gift, '24 Nov 2026', 0, '#5E4A30');
+    [[a, H_A], [b, H_B]].forEach(([el, at]) => {
+      const q = out4(p(t, at, 0.3));
+      el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 40}px)`;
+    });
+    rise('sub0', t, H_SUB);
+  } else if (shot === 1) {
+    lines(sec, '.head', t, 0.0, 0.12);
+  } else if (shot === 2) {
+    lines(sec, '.head', t, 0.0, 0.1);
+    let n = 0, lastE = 1;
+    for (let k = 0; k < 10; k++) if (t >= T_MARK0 + k * T_MARK_GAP) { n = k + 1; lastE = out4(p(t, T_MARK0 + k * T_MARK_GAP, k === 9 ? 0.25 : 0.12)); }
+    document.getElementById('frame2').innerHTML = frameSVG(n, lastE, true);
+  } else if (shot === 3) {
+    const msgs = [
+      { u: 'nova', text: 'scores are up in #results', at: -1, time: 'Today at 19:40' },
+      { u: 'mira', text: 'quiz night was packed again', at: -1, time: 'Today at 19:41' },
+      { u: 'kit', text: 'same 10 people every week too', at: -1, time: 'Today at 19:42' },
+      { u: 'mira', text: 'we should give them something', at: -1, time: 'Today at 19:42' },
+      { u: 'sol', cmd: true, html: cmdHTML(CMD1), at: C_S1, time: 'Today at 19:43' },
+      { u: 'bot', extra: R_UNLOCK, at: C_R1, time: 'Today at 19:43' },
+      { u: 'sol', cmd: true, html: cmdHTML(CMD2), at: C_S2, time: 'Today at 19:43' },
+      { u: 'bot', extra: R_ADD, at: C_R2, time: 'Today at 19:43' },
+    ];
+    let typed = '', caret = false;
+    if (t >= C_T2 && t < C_S2) { typed = typing(CMD2, t, C_T2, C_S2 - C_T2 - 0.12); caret = true; }
+    renderChat(document.getElementById('chat3'), t, msgs, { channel: 'staff', topic: 'Quiz Night', typed, caret });
+    rise('sub3', t, C_SUB);
+  } else if (shot === 4) {
+    const on = t >= R_ROLE ? out4(p(t, R_ROLE, 0.3)) : 0;
+    const msgs = [
+      { u: 'nova', text: 'round 3 was brutal', at: -1, time: 'Today at 20:58' },
+      { u: 'rowan', text: 'who knew the capital of australia', at: -1, time: 'Today at 20:59' },
+      { u: 'teo', text: 'canberra. every week i tell you', at: R_TEO, time: 'Today at 21:00', color: on > 0 ? '#7FCB59' : null },
+      { u: 'bot', html: LEVEL_UP, at: R_UP, time: 'Today at 21:00' },
+    ];
+    renderChat(document.getElementById('chat4'), t, msgs, { channel: 'general', topic: 'Quiz Night', noInput: true });
+    document.getElementById('card4').innerHTML = cardHTML(U.teo, '12 Nov 2024', on, '#3B5560', on > 0 ? '#7FCB59' : null);
+    rise('sub4', t, R_SUB);
+  } else if (shot === 5) {
+    lines(sec, '.head', t, 0.0, 0.12);
+    const r = out4(p(t, B(1.25), 0.34));
+    document.getElementById('rule5').style.transform = `scaleX(${r})`;
+    lines(sec, '.facts', t, B(1.75), B(1));
+  } else if (shot === 6) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo6');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills6', t, B(1));
+    rise('url6', t, B(2));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>

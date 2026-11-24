@@ -6,6 +6,7 @@
   "dependencies": {
     "@fontsource/albert-sans": "^5.3.0",
     "@fontsource/alfa-slab-one": "^5.3.0",
+    "@fontsource/anonymous-pro": "^5.3.0",
     "@fontsource/anton": "^5.3.0",
     "@fontsource/anybody": "^5.3.0",
     "@fontsource/archivo": "^5.0.0",
@@ -18,6 +19,7 @@
     "@fontsource/bowlby-one": "^5.3.0",
     "@fontsource/bricolage-grotesque": "^5.0.0",
     "@fontsource/bungee": "^5.3.0",
+    "@fontsource/caprasimo": "^5.3.0",
     "@fontsource/chivo": "^5.3.0",
     "@fontsource/courier-prime": "^5.3.0",
     "@fontsource/darker-grotesque": "^5.3.0",
@@ -59,6 +61,7 @@
     "@fontsource/saira-stencil-one": "^5.3.0",
     "@fontsource/schibsted-grotesk": "^5.3.0",
     "@fontsource/shrikhand": "^5.3.0",
+    "@fontsource/sofia-sans": "^5.3.0",
     "@fontsource/sometype-mono": "^5.3.0",
     "@fontsource/sora": "^5.3.0",
     "@fontsource/source-code-pro": "^5.3.1",
