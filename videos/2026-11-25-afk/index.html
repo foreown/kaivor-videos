@@ -1,0 +1,364 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: AFK (aurora-bot src/commands/utility/afk.ts, src/services/afk/index.ts, src/services/afk/sanitize.ts,
+  src/parsers/duration.ts formatDuration, src/events/listeners/messageCreate.ts). Not a new commit: nothing showable has
+  shipped since d62b1be (public access, developer-only), so this is an older member-facing feature with no video yet.
+  Look: "door hanger": night blue #13202B and pillow linen #EDE6DC alternating by shot, one accent (peach #F2A07B on
+  dark, terracotta #B0532E on light). A flat hotel door hanger reading AFK that swings in on the turn. Abril Fatface for
+  headlines, Libre Franklin for the chat UI and copy, Cousine only for commands.
+  Facts checked in aurora-bot:
+    - src/commands/utility/afk.ts `afk [reason]` (alias `away`), guild only, cooldown 5, description "Mark yourself as AFK
+        across every server Kaivor is in." First time: ctx.success(`You are now afk: ${status.reason}`).
+    - src/services/afk/index.ts handleMentions(): anyone mentioned who is AFK gets a plain reply (no ping):
+        `**${username}** is afk: ${reason} · ${ago} ago`, ago = formatDuration(now - since, 2). Up to 3 per message.
+      handleReturn(): the AFK author's next message anywhere clears it and replies
+        `Welcome back. You were afk for ${away}.` (away = formatDuration(…, 2)), deleted again after 30 s.
+      The status is keyed by user id only, so it holds in every server Kaivor is in.
+    - src/services/afk/sanitize.ts: "sleeping, back at 9" passes unchanged (no mentions, links or markdown).
+    - src/parsers/duration.ts formatDuration(): "2 hours, 14 minutes" style, units joined by ", ".
+      Set 23:12 -> pinged 01:26 = 2 hours, 14 minutes; 01:43 = 2 hours, 31 minutes; back 09:00 = 9 hours, 48 minutes.
+    - src/framework/embeds.ts: successEmbed = COLORS.success #5BC98C, icon then the sentence.
+  "Night Shift" is a made-up server; teo, mira, sol, kit and rowan are made-up users.
+  Sound: own sound (music/ is empty), 85.71 BPM (42 frames a beat); every shot is a whole number of beats (sound.py).
+-->
+<style>
+@font-face { font-family: 'Ab'; font-weight: 400; src: url('../../node_modules/@fontsource/abril-fatface/files/abril-fatface-latin-400-normal.woff2'); }
+@font-face { font-family: 'Lf'; font-weight: 500; src: url('../../node_modules/@fontsource/libre-franklin/files/libre-franklin-latin-500-normal.woff2'); }
+@font-face { font-family: 'Lf'; font-weight: 600; src: url('../../node_modules/@fontsource/libre-franklin/files/libre-franklin-latin-600-normal.woff2'); }
+@font-face { font-family: 'Lf'; font-weight: 700; src: url('../../node_modules/@fontsource/libre-franklin/files/libre-franklin-latin-700-normal.woff2'); }
+@font-face { font-family: 'Lf'; font-weight: 800; src: url('../../node_modules/@fontsource/libre-franklin/files/libre-franklin-latin-800-normal.woff2'); }
+@font-face { font-family: 'Cs'; font-weight: 400; src: url('../../node_modules/@fontsource/cousine/files/cousine-latin-400-normal.woff2'); }
+
+:root { --night: #13202B; --linen: #EDE6DC; --ink: #1F2730; --peach: #F2A07B; --terra: #B0532E; --softLt: #6A6560; --softDk: #94A3AE; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--linen); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--night); color: var(--linen); }
+.light { background: var(--linen); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ab'; font-weight: 400; letter-spacing: 0.005em; }
+.line { display: block; overflow: hidden; padding: 0.04em 0 0.18em; margin-bottom: -0.12em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Lf'; font-weight: 800; font-size: 34px; letter-spacing: 0.24em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; padding-left: 0.24em; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Lf'; font-weight: 700; font-size: 50px; line-height: 1.25; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Lf'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 600; }
+.chat .top .name { font-size: 36px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 28px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 600; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 24px; padding: 12px 32px; overflow: hidden; position: relative; }
+.msg.reply { padding-top: 54px; }
+.ref { position: absolute; left: 72px; top: 12px; display: flex; align-items: center; gap: 10px; font-size: 28px; color: #B5BAC1; white-space: nowrap; font-weight: 500; }
+.ref .curve { width: 56px; height: 24px; border-left: 4px solid #4E5058; border-top: 4px solid #4E5058; border-top-left-radius: 12px; margin-top: 18px; }
+.ref .mini { width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 800; color: #fff; }
+.ref b { color: #DBDEE1; font-weight: 700; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 36px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: center; gap: 12px; }
+.who { font-size: 35px; font-weight: 700; color: #F2F3F5; }
+.app { font-size: 20px; font-weight: 800; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; }
+.time { font-size: 25px; color: #949BA4; font-weight: 600; }
+.text { font-size: 38px; line-height: 1.36; color: #DBDEE1; margin-top: 3px; font-weight: 500; }
+.text.cmd { font-family: 'Cs'; font-weight: 400; font-size: 36px; line-height: 1.42; }
+.text b, .embed b { font-weight: 800; color: #F2F3F5; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 5px; font-weight: 700; font-family: 'Lf'; }
+.embed { margin-top: 8px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 26px 22px; max-width: 840px; font-size: 36px; line-height: 1.38; font-weight: 500; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 40px; height: 40px; flex: none; margin-top: 4px; }
+
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 33px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 500; }
+.typed { font-family: 'Cs'; font-weight: 400; font-size: 36px; color: #DBDEE1; line-height: 1.4; }
+.caret { display: inline-block; width: 3px; height: 36px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* the door hanger */
+.hanger { position: absolute; left: 50%; width: 460px; margin-left: -230px; transform-origin: 50% 70px; }
+
+.rule { position: absolute; left: 50%; width: 520px; margin-left: -260px; height: 8px; }
+.facts { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Lf'; font-weight: 700; font-size: 50px; line-height: 1.42; }
+
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Cs'; font-weight: 400; font-size: 46px; background: var(--linen); color: var(--ink); padding: 18px 38px; white-space: nowrap; border-radius: 12px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Lf'; font-weight: 800; font-size: 104px; letter-spacing: -0.01em; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (dark) -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:96px;font-size:118px;line-height:1.04">
+    <span class="line"><span>6 pings.</span></span>
+    <span class="line"><span style="color:var(--peach)">No answer.</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:420px;height:1180px"></div>
+  <div class="sub" id="sub0" style="top:1665px;color:var(--softDk)">He was asleep.</div>
+</section>
+
+<!-- 1 turn (light) -->
+<section class="shot light" id="s1">
+  <div class="head" style="top:170px;font-size:128px;line-height:1.04">
+    <span class="line"><span>Hang a sign.</span></span>
+    <span class="line"><span style="color:var(--terra)">Just once.</span></span>
+  </div>
+  <svg class="hanger" id="hanger1" style="top:560px" viewBox="0 0 460 1100" width="460" height="1100"></svg>
+</section>
+
+<!-- 2 command (dark) -->
+<section class="shot dark" id="s2">
+  <div class="kicker" style="top:250px;color:var(--peach)">Before bed</div>
+  <div class="chat" id="chat2" style="top:330px;height:1060px"></div>
+  <div class="sub" id="sub2" style="top:1475px;color:var(--softDk)">One command, then he logs off.</div>
+</section>
+
+<!-- 3 result (light) -->
+<section class="shot light" id="s3">
+  <div class="kicker" style="top:200px;color:var(--terra)">2 hours later</div>
+  <div class="chat" id="chat3" style="top:280px;height:1180px"></div>
+  <div class="sub" id="sub3" style="top:1545px;color:var(--softLt)">Anyone who pings him gets told.</div>
+</section>
+
+<!-- 4 back (dark) -->
+<section class="shot dark" id="s4">
+  <div class="kicker" style="top:470px;color:var(--peach)">Next morning</div>
+  <div class="chat" id="chat4" style="top:550px;height:680px"></div>
+  <div class="sub" id="sub4" style="top:1310px;color:var(--softDk)">It clears the moment he's back.</div>
+</section>
+
+<!-- 5 fact (light) -->
+<section class="shot light" id="s5">
+  <div class="head" style="top:650px;font-size:128px;line-height:1.04">
+    <span class="line"><span>Set it once.</span></span>
+    <span class="line"><span style="color:var(--terra)">Every server.</span></span>
+  </div>
+  <div class="rule" id="rule5" style="top:1020px;background:var(--terra)"></div>
+  <div class="facts" id="facts5" style="top:1075px;color:var(--ink)">
+    <span class="line"><span>Your afk follows you to</span></span>
+    <span class="line"><span style="color:var(--softLt)">every server with Kaivor.</span></span>
+  </div>
+</section>
+
+<!-- 6 end card (dark) -->
+<section class="shot dark" id="s6">
+  <img class="logo" id="logo6" src="../../assets/kaivor-logo.png" style="top:390px">
+  <div class="kicker" style="top:705px;color:var(--peach)">Built into Kaivor</div>
+  <div class="head" style="top:755px;font-size:150px;line-height:1.06">
+    <span class="line"><span>AFK</span></span>
+  </div>
+  <div class="pills" id="pills6" style="top:1000px"><span class="pill">,afk sleeping, back at 9</span></div>
+  <div class="url" style="top:1145px;color:var(--linen)" id="url6">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BEAT_FRAMES = 42;
+const BEAT = BEAT_FRAMES / FPS;           // 0.7 s, 85.71 BPM
+const beats = [5, 3, 6, 6, 4, 3, 4];
+const names = ['hook', 'turn', 'command', 'result', 'back', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: 60 / BEAT, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT_FRAMES / FPS })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  teo:   { name: 'teo', bg: '#4E7A8A', i: 'T' },
+  mira:  { name: 'mira', bg: '#9A5466', i: 'M' },
+  sol:   { name: 'sol', bg: '#7A6A3E', i: 'S' },
+  kit:   { name: 'kit', bg: '#5A6A9A', i: 'K' },
+  rowan: { name: 'rowan', bg: '#6E5A8E', i: 'R' },
+  bot:   { name: 'Kaivor', bot: true, app: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+const ok = (html) => `<div class="embed"><div class="st">${CHECK}<div>${html}</div></div></div>`;
+const at = (name) => `<span class="mention">@${name}</span>`;
+
+// ---- Kaivor's replies, copied from aurora-bot ----
+const REASON = 'sleeping, back at 9';
+const CMD = ',afk ' + REASON;
+// src/commands/utility/afk.ts: ctx.success(`You are now afk: ${status.reason}`)
+const R_SET = ok(`You are now afk: ${esc(REASON)}`);
+// src/services/afk/index.ts handleMentions: `**${username}** is afk: ${reason} · ${ago} ago` (formatDuration(…, 2))
+const R_AFK1 = `<b>teo</b> is afk: ${esc(REASON)} · 2 hours, 14 minutes ago`;
+const R_AFK2 = `<b>teo</b> is afk: ${esc(REASON)} · 2 hours, 31 minutes ago`;
+// src/services/afk/index.ts handleReturn: `Welcome back. You were afk for ${away}.`
+const R_BACK = 'Welcome back. You were afk for 9 hours, 48 minutes.';
+
+function msgHTML(m) {
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  let ref = '';
+  if (m.ref) {
+    const r = U[m.ref.u];
+    ref = `<div class="ref"><span class="curve"></span><span class="mini" style="background:${r.bg}">${r.i}</span><b>${r.name}</b><span>${m.ref.text}</span></div>`;
+  }
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${esc(m.text)}</div>`;
+  if (m.extra) content += m.extra;
+  return `<div class="msg${m.ref ? ' reply' : ''}">${ref}${av}<div class="body"><div class="meta"><span class="who">${u.name}</span>${app}<span class="time">${m.time}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  const typed = opts.typed || '';
+  const input = `<div class="input"><span class="plus">+</span>${typed
+    ? `<span class="typed">${esc(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+    : `<span class="ph">Message #${opts.channel}</span>`}</div>`;
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${opts.noInput ? '' : input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, opts.slide || 0.2));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+// a flat hotel door hanger: hole and slit at the top, AFK in the display face, the reason underneath
+function hangerSVG(textE, subE) {
+  const W = 460, top = 0, w = 380, x = (W - w) / 2, h = 1000;
+  const hole = 70, r = 58;
+  return `<path fill="#F2A07B" d="M${x + 30} ${top} H${x + w - 30} Q${x + w} ${top} ${x + w} ${top + 30} V${h - 30} Q${x + w} ${h} ${x + w - 30} ${h} H${x + 30} Q${x} ${h} ${x} ${h - 30} V${top + 30} Q${x} ${top} ${x + 30} ${top} Z"/>` +
+    `<circle cx="${W / 2}" cy="${hole}" r="${r}" fill="#EDE6DC"/>` +
+    `<rect x="${W / 2 - 9}" y="${hole + r - 4}" width="18" height="${150 - r}" fill="#EDE6DC"/>` +
+    `<line x1="${x + 40}" y1="${290}" x2="${x + w - 40}" y2="${290}" stroke="#13202B" stroke-width="5" opacity="0.85"/>` +
+    `<text x="${W / 2}" y="${360}" text-anchor="middle" font-family="Lf" font-weight="700" font-size="44" fill="#13202B" opacity="${textE}">teo is</text>` +
+    `<text x="${W / 2}" y="${575}" text-anchor="middle" font-family="Ab" font-size="200" fill="#13202B" opacity="${textE}" transform="translate(0 ${(1 - textE) * 30})">AFK</text>` +
+    `<line x1="${x + 40}" y1="${660}" x2="${x + w - 40}" y2="${660}" stroke="#13202B" stroke-width="5" opacity="0.85"/>` +
+    `<text x="${W / 2}" y="${745}" text-anchor="middle" font-family="Lf" font-weight="700" font-size="40" fill="#13202B" opacity="${subE}">sleeping,</text>` +
+    `<text x="${W / 2}" y="${800}" text-anchor="middle" font-family="Lf" font-weight="700" font-size="40" fill="#13202B" opacity="${subE}">back at 9</text>` +
+    `<path d="M${W / 2 - 60} 905 a 46 46 0 1 0 60 -52 a 36 36 0 1 1 -60 52 Z" fill="#13202B" opacity="${subE}"/>`;
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.34));
+    s.style.transform = `translateY(${(1 - e) * 115}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.32));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+function typing(cmd, t, a, d) {
+  return cmd.slice(0, Math.ceil(cmd.length * inout(p(t, a, d))));
+}
+
+// ---- timings (seconds within the shot), on the beat grid; sound.py uses the same beats ----
+const H_PING0 = B(0.25), H_PING_GAP = B(0.5), H_SUB = B(3.5);   // 6 pings: 0.25, 0.75 … 2.75 beats
+const T_SWING = B(0.5), T_TEXT = B(1.25), T_SUB = B(1.75);
+const C_TYPE = B(0.5), C_SEND = B(2.5), C_REPLY = B(3.25), C_SUB = B(4.25);
+const R_P1 = B(0.5), R_A1 = B(1.25), R_P2 = B(2.25), R_A2 = B(3), R_SUB = B(4);
+const K_MSG = B(0.5), K_BACK = B(1.25), K_SUB = B(2.25);
+window.T = { H_PING0, H_PING_GAP, H_SUB, T_SWING, T_TEXT, T_SUB, C_TYPE, C_SEND, C_REPLY, R_P1, R_A1, R_P2, R_A2, K_MSG, K_BACK };
+
+const S = [...document.querySelectorAll('.shot')];
+
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, '.head', t, 0.02, 0.12);
+    const pings = [
+      { u: 'mira', html: `${at('teo')} you on?` },
+      { u: 'sol', html: `${at('teo')}` },
+      { u: 'mira', html: `${at('teo')} lobby's open` },
+      { u: 'kit', html: `${at('teo')} ??` },
+      { u: 'sol', html: `${at('teo')} hello` },
+      { u: 'mira', html: `ok ${at('teo')} we started without you` },
+    ];
+    const msgs = [
+      { u: 'sol', text: 'that last round was chaos', at: -1, time: 'Today at 00:24' },
+      { u: 'kit', text: 'rowan carried', at: -1, time: 'Today at 00:25' },
+      { u: 'rowan', text: 'barely. again?', at: -1, time: 'Today at 00:27' },
+      { u: 'mira', text: 'need a fourth', at: -1, time: 'Today at 00:28' },
+      { u: 'sol', text: 'teo?', at: -1, time: 'Today at 00:29' },
+      { u: 'rowan', text: 'who is up for one more round', at: -1, time: 'Today at 00:30' },
+      { u: 'kit', text: 'me. teo said he was in', at: -1, time: 'Today at 00:30' },
+      ...pings.map((m, i) => ({ ...m, at: H_PING0 + i * H_PING_GAP, time: `Today at 00:3${1 + Math.floor(i / 2)}` })),
+    ];
+    renderChat(document.getElementById('chat0'), t, msgs, { channel: 'general', topic: 'Night Shift', slide: 0.16 });
+    rise('sub0', t, H_SUB);
+  } else if (shot === 1) {
+    lines(sec, '.head', t, 0.0, 0.1);
+    const e = out4(p(t, T_SWING, 0.5));
+    const h = document.getElementById('hanger1');
+    h.style.transform = `translateY(${(1 - e) * -140}px) rotate(${(1 - e) * -14}deg)`;
+    h.style.opacity = String(Math.min(1, e * 3));
+    h.innerHTML = hangerSVG(out4(p(t, T_TEXT, 0.3)), out4(p(t, T_SUB, 0.3)));
+  } else if (shot === 2) {
+    const msgs = [
+      { u: 'kit', text: 'rematch tomorrow, no excuses', at: -1, time: 'Today at 23:07' },
+      { u: 'sol', text: 'that clutch at the end though', at: -1, time: 'Today at 23:08' },
+      { u: 'rowan', text: 'teo carried, honestly', at: -1, time: 'Today at 23:09' },
+      { u: 'mira', text: 'gg, that last round was close', at: -1, time: 'Today at 23:10' },
+      { u: 'kit', text: 'same time tomorrow?', at: -1, time: 'Today at 23:11' },
+      { u: 'teo', text: "i'm in. going to bed now", at: -1, time: 'Today at 23:11' },
+      { u: 'teo', cmd: true, html: esc(CMD), at: C_SEND, time: 'Today at 23:12' },
+      { u: 'bot', extra: R_SET, at: C_REPLY, time: 'Today at 23:12' },
+    ];
+    let typed = '', caret = false;
+    if (t >= C_TYPE && t < C_SEND) { typed = typing(CMD, t, C_TYPE, C_SEND - C_TYPE - 0.12); caret = true; }
+    renderChat(document.getElementById('chat2'), t, msgs, { channel: 'general', topic: 'Night Shift', typed, caret });
+    rise('sub2', t, C_SUB);
+  } else if (shot === 3) {
+    const msgs = [
+      { u: 'kit', text: 'night all', at: -1, time: 'Today at 23:40' },
+      { u: 'sol', text: 'cant sleep', at: -1, time: 'Today at 01:12' },
+      { u: 'rowan', text: 'same. watching old clips', at: -1, time: 'Today at 01:15' },
+      { u: 'sol', text: 'send the good ones', at: -1, time: 'Today at 01:16' },
+      { u: 'rowan', text: 'anyone still up', at: -1, time: 'Today at 01:20' },
+      { u: 'mira', text: 'always', at: -1, time: 'Today at 01:21' },
+      { u: 'mira', html: `${at('teo')} you coming tomorrow?`, at: R_P1, time: 'Today at 01:26' },
+      { u: 'bot', html: R_AFK1, at: R_A1, time: 'Today at 01:26', ref: { u: 'mira', text: '@teo you coming tomorrow?' } },
+      { u: 'sol', html: `${at('teo')} you up?`, at: R_P2, time: 'Today at 01:43' },
+      { u: 'bot', html: R_AFK2, at: R_A2, time: 'Today at 01:43', ref: { u: 'sol', text: '@teo you up?' } },
+    ];
+    renderChat(document.getElementById('chat3'), t, msgs, { channel: 'general', topic: 'Night Shift' });
+    rise('sub3', t, R_SUB);
+  } else if (shot === 4) {
+    const msgs = [
+      { u: 'mira', text: 'coffee first', at: -1, time: 'Today at 08:49' },
+      { u: 'kit', text: 'morning all', at: -1, time: 'Today at 08:52' },
+      { u: 'teo', text: 'morning. what did i miss', at: K_MSG, time: 'Today at 09:00' },
+      { u: 'bot', text: R_BACK, at: K_BACK, time: 'Today at 09:00', ref: { u: 'teo', text: 'morning. what did i miss' } },
+    ];
+    renderChat(document.getElementById('chat4'), t, msgs, { channel: 'general', topic: 'Night Shift', noInput: true });
+    rise('sub4', t, K_SUB);
+  } else if (shot === 5) {
+    lines(sec, '.head', t, 0.0, 0.1);
+    const r = out4(p(t, B(1), 0.3));
+    document.getElementById('rule5').style.transform = `scaleX(${r})`;
+    lines(sec, '.facts', t, B(1.25), B(0.5));
+  } else if (shot === 6) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo6');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills6', t, B(1));
+    rise('url6', t, B(1.75));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
