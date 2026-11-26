@@ -2,6 +2,18 @@
 
 One entry per video, newest first (VIDEO_RULES.md section 9). Numbers come from Metricool (brand 7853528) and are a snapshot from that day.
 
+## 2026-11-26
+
+**Data:** TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns only the 11-01 Short, without numbers, so this read is TikTok only. **The 11-25 posts (AFK) also never went out**: both show ERROR "You have reached your Metricool account limit.", so nothing has published since 11-12.
+
+**What changed since 11-25:** the 30-day window now starts 27 Oct, so `/server setup` (26 Oct) has dropped out. The 30 Oct video ("This is meant for you.") has the most views at **344** but only 3 likes; repeating events (11-12) has **321** views, 5 likes, 1 share. That is within 20 % on views, so the one with more interactions, repeating events, stays the best. The November band is 205–321.
+
+**What seems to work:** unchanged: one concrete, relatable moment that went wrong, told plainly, with a number in it, where Kaivor does the work.
+
+**Signal strength: weak.** No new data for fourteen days; the last thirteen videos have not been seen by anyone.
+
+**What today's video does with it:** nothing new has shipped since `d62b1be` (public access, developer-only), so it picks reminders (an older member-facing feature with no video yet): a social miss with a number in the hook ("“Give me 2 hours.” That was Tuesday."), one command, and Kaivor's DM arriving on time two hours later. The caption opens on that miss.
+
 ## 2026-11-25
 
 **Data:** same as yesterday. TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns only the 11-01 Short, without numbers, so this read is TikTok only. **The 11-24 posts (level rewards) also never went out**: both show ERROR "You have reached your Metricool account limit.", so nothing has published since 11-12 and the export is unchanged.

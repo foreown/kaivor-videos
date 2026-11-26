@@ -1,0 +1,400 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: reminders (aurora-bot src/commands/utility/utility.ts `remind`, src/services/reminders/index.ts,
+  src/parsers/duration.ts, src/framework/embeds.ts). Not a new commit: nothing showable has shipped since d62b1be
+  (public access, developer-only), so this is an older member-facing feature with no video yet.
+  Look: "flip clock": bark #2A211C and sky wash #D7E4EE alternating by shot, one accent (tomato #E8483B on dark,
+  deep tomato #B42A1E on light). A split-flap clock whose cards flip 19:30 -> 21:30. Oswald for headlines and the
+  clock digits, Nunito Sans for the chat UI and copy, Oxygen Mono only for commands.
+  Facts checked in aurora-bot:
+    - src/commands/utility/utility.ts `remind <duration> <what> | every <interval> <what>` (aliases remindme,
+        reminder), guildOnly false, userInstall true, cooldown 5. Examples include `remind every 1d take your vitamins`
+        and `remind 30m check the oven`; the slash option hint says "e.g. 30m or 2d, or "every 1d" to repeat".
+        One-off: duration 30 s to a year. Repeating: every 1 hour to 1 year.
+        Reply: ctx.success(`Reminder set for ${formatReminder(remindAt)}. I will DM you.`)
+    - src/services/reminders/index.ts formatReminder(): `${timestamp(remindAt, 'F')} (${timestamp(remindAt, 'R')})`.
+        Rendered here as "Tuesday, 24 November 2026 21:30" and "in 2 hours" (Discord timestamp chips).
+      deliverReminder(): the text only ever goes by DM (sendKaivorMessage to the user), polled every 30 s.
+      reminderEmbed(): COLORS.info #6F9ECF, author "Reminder", description = the text (safe(): no change for
+        "check mira's map"), inline field "Set" = timestamp(createdAt, 'R') -> "2 hours ago", embed timestamp =
+        createdAt -> "Today at 19:30" in the footer. "Repeats" field only for repeating reminders.
+    - src/parsers/duration.ts parses `2h` and `1d`.
+    - src/framework/embeds.ts: successEmbed = COLORS.success #5BC98C, icon then the sentence.
+  "Map Lab" is a made-up server; teo, mira, sol and kit are made-up users.
+  Sound: own sound (music/ is empty), 116.13 BPM (31 frames a beat); every shot is a whole number of beats (sound.py).
+-->
+<style>
+@font-face { font-family: 'Os'; font-weight: 600; src: url('../../node_modules/@fontsource/oswald/files/oswald-latin-600-normal.woff2'); }
+@font-face { font-family: 'Os'; font-weight: 700; src: url('../../node_modules/@fontsource/oswald/files/oswald-latin-700-normal.woff2'); }
+@font-face { font-family: 'Ns'; font-weight: 500; src: url('../../node_modules/@fontsource/nunito-sans/files/nunito-sans-latin-500-normal.woff2'); }
+@font-face { font-family: 'Ns'; font-weight: 600; src: url('../../node_modules/@fontsource/nunito-sans/files/nunito-sans-latin-600-normal.woff2'); }
+@font-face { font-family: 'Ns'; font-weight: 700; src: url('../../node_modules/@fontsource/nunito-sans/files/nunito-sans-latin-700-normal.woff2'); }
+@font-face { font-family: 'Ns'; font-weight: 800; src: url('../../node_modules/@fontsource/nunito-sans/files/nunito-sans-latin-800-normal.woff2'); }
+@font-face { font-family: 'Ox'; font-weight: 400; src: url('../../node_modules/@fontsource/oxygen-mono/files/oxygen-mono-latin-400-normal.woff2'); }
+
+:root { --bark: #2A211C; --sky: #D7E4EE; --ink: #1E2328; --tom: #E8483B; --tomDk: #B42A1E; --softLt: #56636E; --softDk: #B3A79D; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--sky); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--bark); color: var(--sky); }
+.light { background: var(--sky); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Os'; font-weight: 700; letter-spacing: -0.005em; }
+.line { display: block; overflow: hidden; padding: 0.02em 0 0.1em; margin-bottom: -0.06em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Ns'; font-weight: 800; font-size: 34px; letter-spacing: 0.22em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; padding-left: 0.22em; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Ns'; font-weight: 800; font-size: 50px; line-height: 1.25; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Ns'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 700; }
+.chat .top .name { font-size: 36px; font-weight: 800; color: #F2F3F5; }
+.chat .top .topic { font-size: 28px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 700; }
+.chat .top .dmav { width: 52px; height: 52px; border-radius: 50%; overflow: hidden; }
+.chat .top .dmav img { width: 100%; height: 100%; display: block; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 16px; }
+.msg { display: flex; gap: 24px; padding: 12px 32px; overflow: hidden; position: relative; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 36px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: center; gap: 12px; }
+.who { font-size: 35px; font-weight: 800; color: #F2F3F5; }
+.app { font-size: 20px; font-weight: 800; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; }
+.time { font-size: 25px; color: #949BA4; font-weight: 700; }
+.text { font-size: 38px; line-height: 1.36; color: #DBDEE1; margin-top: 3px; font-weight: 600; }
+.text.cmd { font-family: 'Ox'; font-weight: 400; font-size: 35px; line-height: 1.42; }
+.text b, .embed b { font-weight: 800; color: #F2F3F5; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 5px; font-weight: 700; font-family: 'Ns'; }
+.ts { background: rgba(78, 80, 88, 0.55); border-radius: 4px; padding: 0 6px; color: #E3E5E8; }
+.embed { margin-top: 8px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 26px 22px; max-width: 840px; font-size: 36px; line-height: 1.4; font-weight: 600; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 40px; height: 40px; flex: none; margin-top: 5px; }
+.embed .author { font-size: 30px; font-weight: 800; color: #F2F3F5; margin-bottom: 8px; }
+.embed .fname { font-size: 29px; font-weight: 800; color: #F2F3F5; margin-top: 16px; }
+.embed .fval { font-size: 33px; }
+.embed .foot { font-size: 25px; color: #B5BAC1; margin-top: 16px; font-weight: 700; }
+.divider { display: flex; align-items: center; gap: 18px; padding: 18px 32px 10px; color: #949BA4; font-size: 26px; font-weight: 800; }
+.divider::before, .divider::after { content: ''; flex: 1; height: 2px; background: #3F4147; }
+.intro { padding: 30px 32px 26px; }
+.intro .big { width: 150px; height: 150px; border-radius: 50%; overflow: hidden; }
+.intro .big img { width: 100%; height: 100%; display: block; }
+.intro .nm { font-size: 54px; font-weight: 800; color: #F2F3F5; margin-top: 16px; }
+.intro .nt { font-size: 31px; color: #B5BAC1; margin-top: 6px; font-weight: 600; line-height: 1.35; }
+
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 33px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 600; }
+.typed { font-family: 'Ox'; font-weight: 400; font-size: 35px; color: #DBDEE1; line-height: 1.4; }
+.caret { display: inline-block; width: 3px; height: 36px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* the split-flap clock */
+.clock { position: absolute; left: 0; right: 0; display: flex; justify-content: center; align-items: center; }
+.card { position: relative; perspective: 1400px; }
+.card .half { position: absolute; left: 0; right: 0; overflow: hidden; }
+.card .half .dg { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Os'; font-weight: 700; }
+.card .seam { position: absolute; left: 0; right: 0; height: 6px; }
+.colon { display: flex; flex-direction: column; justify-content: center; }
+.colon i { display: block; border-radius: 50%; }
+
+.rule { position: absolute; left: 50%; width: 520px; margin-left: -260px; height: 8px; }
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Ox'; font-weight: 400; font-size: 44px; padding: 18px 36px; white-space: nowrap; border-radius: 12px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Os'; font-weight: 700; font-size: 120px; letter-spacing: 0.005em; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (dark) -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:90px;font-size:124px;line-height:1.08">
+    <span class="line"><span>“Give me 2 hours.”</span></span>
+    <span class="line"><span style="color:var(--tom)">That was Tuesday.</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:430px;height:1150px"></div>
+  <div class="sub" id="sub0" style="top:1650px;color:var(--softDk)">He forgot. Everyone does.</div>
+</section>
+
+<!-- 1 turn (light) -->
+<section class="shot light" id="s1">
+  <div class="head" style="top:300px;font-size:150px;line-height:1.06">
+    <span class="line"><span>Forget it.</span></span>
+    <span class="line"><span style="color:var(--tomDk)">Kaivor won't.</span></span>
+  </div>
+  <div class="clock" id="clock1" style="top:860px"></div>
+  <div class="sub" id="sub1" style="top:1300px;color:var(--softLt)">Tuesday, 19:30</div>
+</section>
+
+<!-- 2 command (dark) -->
+<section class="shot dark" id="s2">
+  <div class="kicker" style="top:250px;color:var(--tom)">Tuesday, 19:30</div>
+  <div class="chat" id="chat2" style="top:330px;height:1080px"></div>
+  <div class="sub" id="sub2" style="top:1495px;color:var(--softDk)">One line. Then he can forget it.</div>
+</section>
+
+<!-- 3 the DM (light) -->
+<section class="shot light" id="s3">
+  <div class="kicker" style="top:150px;color:var(--tomDk)">Two hours later</div>
+  <div class="clock" id="clock3" style="top:225px"></div>
+  <div class="chat" id="chat3" style="top:540px;height:1010px"></div>
+  <div class="sub" id="sub3" style="top:1625px;color:var(--softLt)">On time, in his DMs.</div>
+</section>
+
+<!-- 4 done (dark) -->
+<section class="shot dark" id="s4">
+  <div class="kicker" style="top:480px;color:var(--tom)">Same night</div>
+  <div class="chat" id="chat4" style="top:560px;height:700px"></div>
+  <div class="sub" id="sub4" style="top:1340px;color:var(--softDk)">Done before Thursday.</div>
+</section>
+
+<!-- 5 fact (light) -->
+<section class="shot light" id="s5">
+  <div class="head" style="top:600px;font-size:150px;line-height:1.06">
+    <span class="line"><span>Once.</span></span>
+    <span class="line"><span style="color:var(--tomDk)">Or every day.</span></span>
+  </div>
+  <div class="rule" id="rule5" style="top:1010px;background:var(--tomDk)"></div>
+  <div class="pills" id="pills5" style="top:1080px"><span class="pill" style="background:var(--bark);color:var(--sky)">,remind every 1d stretch</span></div>
+</section>
+
+<!-- 6 end card (dark) -->
+<section class="shot dark" id="s6">
+  <img class="logo" id="logo6" src="../../assets/kaivor-logo.png" style="top:390px">
+  <div class="kicker" style="top:705px;color:var(--tom)">Built into Kaivor</div>
+  <div class="head" style="top:752px;font-size:156px;line-height:1.08">
+    <span class="line"><span>Reminders</span></span>
+  </div>
+  <div class="pills" id="pills6" style="top:1000px"><span class="pill" style="background:var(--sky);color:var(--ink)">,remind 2h check mira's map</span></div>
+  <div class="url" style="top:1130px;color:var(--sky)" id="url6">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BEAT_FRAMES = 31;
+const BEAT = BEAT_FRAMES / FPS;           // 0.5167 s, 116.13 BPM
+const beats = [7, 4, 8, 7, 4, 5, 6];
+const names = ['hook', 'turn', 'command', 'dm', 'done', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: 60 / BEAT, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT_FRAMES / FPS })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  teo:  { name: 'teo', bg: '#5E7F6E', i: 'T' },
+  mira: { name: 'mira', bg: '#A0566A', i: 'M' },
+  sol:  { name: 'sol', bg: '#7A6A3E', i: 'S' },
+  kit:  { name: 'kit', bg: '#56679A', i: 'K' },
+  bot:  { name: 'Kaivor', bot: true, app: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+const ok = (html) => `<div class="embed"><div class="st">${CHECK}<div>${html}</div></div></div>`;
+const at = (name) => `<span class="mention">@${name}</span>`;
+const ts = (s) => `<span class="ts">${s}</span>`;
+
+// ---- Kaivor's replies, copied from aurora-bot ----
+const WHAT = "check mira's map";
+const CMD = ',remind 2h ' + WHAT;
+// src/commands/utility/utility.ts remind: ctx.success(`Reminder set for ${formatReminder(remindAt)}. I will DM you.`)
+// src/services/reminders/index.ts formatReminder: `${timestamp(remindAt, 'F')} (${timestamp(remindAt, 'R')})`
+const R_SET = ok(`Reminder set for ${ts('Tuesday, 24 November 2026 21:30')} (${ts('in 2 hours')}). I will DM you.`);
+// src/services/reminders/index.ts reminderEmbed: COLORS.info, author "Reminder", description, field "Set", timestamp
+const R_DM = `<div class="embed" style="border-left-color:#6F9ECF"><div class="author">Reminder</div><div>${esc(WHAT)}</div>` +
+  `<div class="fname">Set</div><div class="fval">${ts('2 hours ago')}</div><div class="foot">Today at 19:30</div></div>`;
+
+function msgHTML(m) {
+  if (m.divider) return `<div class="divider">${m.divider}</div>`;
+  if (m.intro) return `<div class="intro"><div class="big"><img src="../../assets/icon-512.png"></div><div class="nm">Kaivor</div><div class="nt">This is the beginning of your direct message history with <b style="color:#DBDEE1">Kaivor</b>.</div></div>`;
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${esc(m.text)}</div>`;
+  if (m.extra) content += m.extra;
+  return `<div class="msg">${av}<div class="body"><div class="meta"><span class="who">${u.name}</span>${app}<span class="time">${m.time}</span></div>${content}</div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = opts.dm
+    ? `<span class="hash">@</span><span class="dmav"><img src="../../assets/icon-512.png"></span><span class="name">Kaivor</span>`
+    : `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  const target = opts.dm ? '@Kaivor' : '#' + opts.channel;
+  const typed = opts.typed || '';
+  const input = `<div class="input"><span class="plus">+</span>${typed
+    ? `<span class="typed">${esc(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+    : `<span class="ph">Message ${target}</span>`}</div>`;
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${opts.noInput ? '' : input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, opts.slide || 0.2));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+// ---- split-flap clock ----
+// cards: [{ from, to, q }] where q in 0..1 is the flip progress (top flap folds down, then the bottom flap lands)
+function clockHTML(cards, s, theme) {
+  const W = Math.round(150 * s), H = Math.round(220 * s), gap = Math.round(14 * s), fs = Math.round(196 * s);
+  const half = H / 2;
+  const digit = (d, top) => `<div class="dg" style="height:${H}px;line-height:${H}px;font-size:${fs}px;color:${theme.fg};top:${top ? 0 : -half}px">${d}</div>`;
+  const halfDiv = (d, top, extra = '') => `<div class="half" style="top:${top ? 0 : half}px;height:${half}px;background:${top ? theme.cardTop : theme.card};border-radius:${top ? `${10 * s}px ${10 * s}px 0 0` : `0 0 ${10 * s}px ${10 * s}px`};${extra}">${digit(d, top)}</div>`;
+  const card = (c) => {
+    const q = Math.min(1, Math.max(0, c.q));
+    let html = halfDiv(c.to, true) + halfDiv(q >= 1 ? c.to : c.from, false);
+    if (q > 0 && q < 0.5) {
+      const k = 1 - q * 2;
+      html += halfDiv(c.from, true, `transform-origin:50% 100%;transform:scaleY(${k});filter:brightness(${0.75 + 0.25 * k})`);
+    } else if (q >= 0.5 && q < 1) {
+      const k = (q - 0.5) * 2;
+      html += halfDiv(c.to, false, `transform-origin:50% 0%;transform:scaleY(${k});filter:brightness(${0.75 + 0.25 * k})`);
+    }
+    html += `<div class="seam" style="top:${half - 3 * s}px;background:${theme.seam};height:${6 * s}px"></div>`;
+    return `<div class="card" style="width:${W}px;height:${H}px;margin:0 ${gap / 2}px">${html}</div>`;
+  };
+  const dot = `<i style="width:${22 * s}px;height:${22 * s}px;background:${theme.dot};margin:${18 * s}px 0"></i>`;
+  const colon = `<div class="colon" style="width:${70 * s}px;align-items:center">${dot}${dot}</div>`;
+  return card(cards[0]) + card(cards[1]) + colon + card(cards[2]) + card(cards[3]);
+}
+const CLOCK_ON_LIGHT = { card: '#2A211C', cardTop: '#33291F', fg: '#D7E4EE', seam: '#D7E4EE', dot: '#B42A1E' };
+// one flip lasts this long
+const FLIP = 0.26;
+// digits changing over time: steps = [{ at, to: 'HHMM' }], first entry is the start state
+function clockState(t, steps) {
+  let cur = steps[0].to;
+  const cards = [0, 1, 2, 3].map((i) => ({ from: cur[i], to: cur[i], q: 1 }));
+  for (let k = 1; k < steps.length; k++) {
+    const st = steps[k];
+    if (t < st.at) break;
+    for (let i = 0; i < 4; i++) {
+      const delay = st.stagger ? st.stagger[i] : 0;
+      if (st.to[i] !== cur[i]) cards[i] = { from: cur[i], to: st.to[i], q: (t - st.at - delay) / FLIP };
+      else cards[i] = { from: cur[i], to: cur[i], q: 1 };
+    }
+    // a later step only starts once this one has landed
+    cur = st.to;
+  }
+  return cards;
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.32));
+    s.style.transform = `translateY(${(1 - e) * 115}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.3));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+function typing(cmd, t, a, d) {
+  return cmd.slice(0, Math.ceil(cmd.length * inout(p(t, a, d))));
+}
+
+// ---- timings (seconds within the shot), on the beat grid; sound.py uses the same beats ----
+const H_DIV = B(2), H_ASK = B(2.5), H_OH = B(3.75), H_SUB = B(5);
+const T_FLIP = [B(1), B(1.5), B(2), B(2.5)], T_SUB = B(3);
+const C_TYPE = B(0.5), C_SEND = B(3.5), C_REPLY = B(4.25), C_SUB = B(5.5);
+const D_F1 = B(0.5), D_F2 = B(1.5), D_DM = B(2.5), D_SUB = B(4.5);
+const K_MSG = B(0.5), K_REP = B(1.75), K_SUB = B(2.5);
+window.T = { H_DIV, H_ASK, H_OH, H_SUB, T_FLIP, C_TYPE, C_SEND, C_REPLY, D_F1, D_F2, D_DM, K_MSG, K_REP };
+
+const S = [...document.querySelectorAll('.shot')];
+
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, '.head', t, 0.02, 0.14);
+    const msgs = [
+      { u: 'kit', text: 'new spawn layout is up for testing', at: -1, time: '24/11/2026 19:12' },
+      { u: 'sol', text: 'the bridge one?', at: -1, time: '24/11/2026 19:14' },
+      { u: 'kit', text: 'yeah, mira made it', at: -1, time: '24/11/2026 19:15' },
+      { u: 'mira', html: `${at('teo')} can you check my map tonight?`, at: -1, time: '24/11/2026 19:28' },
+      { u: 'teo', text: 'yeah give me 2 hours', at: -1, time: '24/11/2026 19:30' },
+      { u: 'mira', text: 'thank you!!', at: -1, time: '24/11/2026 19:30' },
+      { divider: '26 November 2026', at: H_DIV },
+      { u: 'mira', html: `${at('teo')} so... the map?`, at: H_ASK, time: 'Today at 18:04' },
+      { u: 'teo', text: 'oh no', at: H_OH, time: 'Today at 18:09' },
+    ];
+    renderChat(document.getElementById('chat0'), t, msgs, { channel: 'maps', topic: 'Map Lab', slide: 0.18 });
+    rise('sub0', t, H_SUB);
+  } else if (shot === 1) {
+    lines(sec, '.head', t, 0.0, 0.1);
+    // the cards flip in one by one, from blank to 19:30
+    const cards = [1, 9, 3, 0].map((d, i) => ({ from: '', to: String(d), q: (t - T_FLIP[i]) / FLIP }));
+    const el = document.getElementById('clock1');
+    el.innerHTML = clockHTML(cards, 1.25, CLOCK_ON_LIGHT);
+    const e = out4(p(t, B(0.5), 0.3));
+    el.style.opacity = String(e); el.style.transform = `translateY(${(1 - e) * 30}px)`;
+    rise('sub1', t, T_SUB);
+  } else if (shot === 2) {
+    const msgs = [
+      { u: 'sol', text: 'the bridge one?', at: -1, time: 'Today at 19:14' },
+      { u: 'kit', text: 'yeah, mira made it', at: -1, time: 'Today at 19:15' },
+      { u: 'mira', html: `${at('teo')} can you check my map tonight?`, at: -1, time: 'Today at 19:28' },
+      { u: 'teo', text: 'yeah give me 2 hours', at: -1, time: 'Today at 19:30' },
+      { u: 'mira', text: 'thank you!!', at: -1, time: 'Today at 19:30' },
+      { u: 'teo', cmd: true, html: esc(CMD), at: C_SEND, time: 'Today at 19:30' },
+      { u: 'bot', extra: R_SET, at: C_REPLY, time: 'Today at 19:30' },
+    ];
+    let typed = '', caret = false;
+    if (t >= C_TYPE && t < C_SEND) { typed = typing(CMD, t, C_TYPE, C_SEND - C_TYPE - 0.12); caret = true; }
+    renderChat(document.getElementById('chat2'), t, msgs, { channel: 'maps', topic: 'Map Lab', typed, caret });
+    rise('sub2', t, C_SUB);
+  } else if (shot === 3) {
+    const cards = clockState(t, [
+      { to: '1930' },
+      { at: D_F1, to: '2030', stagger: [0, 0.06, 0, 0] },
+      { at: D_F2, to: '2130', stagger: [0, 0, 0, 0] },
+    ]);
+    document.getElementById('clock3').innerHTML = clockHTML(cards, 1.0, CLOCK_ON_LIGHT);
+    const msgs = [
+      { intro: true, at: -1 },
+      { divider: '24 November 2026', at: -1 },
+      { u: 'bot', extra: R_DM, at: D_DM, time: 'Today at 21:30' },
+    ];
+    renderChat(document.getElementById('chat3'), t, msgs, { dm: true, slide: 0.22 });
+    rise('sub3', t, D_SUB);
+  } else if (shot === 4) {
+    const msgs = [
+      { u: 'kit', text: 'test round at 22?', at: -1, time: 'Today at 21:18' },
+      { u: 'sol', text: "i'm in", at: -1, time: 'Today at 21:20' },
+      { u: 'teo', html: `${at('mira')} checked your map. the bridge spawn is way too open`, at: K_MSG, time: 'Today at 21:34' },
+      { u: 'mira', text: 'finally. fixing it now', at: K_REP, time: 'Today at 21:35' },
+    ];
+    renderChat(document.getElementById('chat4'), t, msgs, { channel: 'maps', topic: 'Map Lab', noInput: true });
+    rise('sub4', t, K_SUB);
+  } else if (shot === 5) {
+    lines(sec, '.head', t, 0.0, B(1));
+    const r = out4(p(t, B(2), 0.3));
+    document.getElementById('rule5').style.transform = `scaleX(${r})`;
+    rise('pills5', t, B(2.5));
+  } else if (shot === 6) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo6');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills6', t, B(1));
+    rise('url6', t, B(2));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
