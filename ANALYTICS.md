@@ -2,6 +2,18 @@
 
 One entry per video, newest first (VIDEO_RULES.md section 9). Numbers come from Metricool (brand 7853528) and are a snapshot from that day.
 
+## 2026-11-27
+
+**Data:** same as yesterday. TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns only the 11-01 Short, without numbers, so this read is TikTok only. **The 11-26 posts (reminders) also never went out**: both show ERROR "You have reached your Metricool account limit.", so nothing has published since 11-12 and the export is unchanged.
+
+**What changed since 11-26:** nothing. The 30 Oct video ("This is meant for you.") still has the most views at **344** with 3 likes; repeating events (11-12) has **321** views, 5 likes, 1 share. Within 20 % on views, so repeating events, with more interactions, stays the best. The November band is 205–321.
+
+**What seems to work:** unchanged: one concrete, relatable moment that went wrong, told plainly, with a number in it, where Kaivor does the work.
+
+**Signal strength: weak.** No new data for fifteen days; the last fourteen videos have not been seen by anyone.
+
+**What today's video does with it:** nothing new has shipped since `d62b1be` (public access, developer-only), so it picks autoresponders (an older feature with no video yet that members see answer them): a relatable server annoyance with a number in the hook ("Same question. 14 times today."), one staff command, and Kaivor answering the next people who ask. The caption opens on that annoyance.
+
 ## 2026-11-26
 
 **Data:** TikTok has views, likes, comments and shares; full-watch rate and watch time are still empty. YouTube returns only the 11-01 Short, without numbers, so this read is TikTok only. **The 11-25 posts (AFK) also never went out**: both show ERROR "You have reached your Metricool account limit.", so nothing has published since 11-12.

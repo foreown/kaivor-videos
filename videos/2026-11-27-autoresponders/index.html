@@ -1,0 +1,370 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: autoresponders (aurora-bot src/commands/configuration/autoresponder.ts,
+  src/services/autoresponder/index.ts, src/events/listeners/messageCreate.ts, src/framework/embeds.ts,
+  src/framework/context.ts). Not a new commit: nothing showable has shipped since d62b1be (public access,
+  developer-only), so this is an older member-facing feature with no video yet.
+  Look: "help desk": pine slate #1B2422 and shell #F0E9E4 alternating by shot, one accent (turquoise #2BB3A3 on dark,
+  deep turquoise #0B6F65 on light). A flat front-desk service bell that gets struck on the turn, an "asked N×" tally
+  in the channel header. Bagel Fat One for headlines, Kumbh Sans for the chat UI and copy, B612 Mono only for commands.
+  Facts checked in aurora-bot:
+    - autoresponder.ts `autoresponder add` (alias `ar add`): usage
+        `<trigger>, <response> [--not_strict] [--wildcard] [--regex] [--reply] [--delete] [--self_destruct <6-60>]`,
+        the first comma splits trigger and response, userPermissions manage_guild.
+        Reply: ctx.success(`Autoresponder added for \`${safe(trigger, 60)}\`.`) -> "Autoresponder added for `get roles`."
+        (safe() only escapes markdown; "get roles" has none. No variables, so no unfillable-variables note.)
+    - --not_strict (parsers/flags.ts: a switch): index.ts matches() -> the trigger may appear anywhere in the message,
+        lower-cased, on a word boundary, followed by end, space or one of ! ? . ,  So "how do i get roles?",
+        "hey where do i get roles" and "can someone tell me how to get roles" all match "get roles".
+    - --reply: message.reply(payload, allowedMentions repliedUser false) -> a reply without a ping (name shown
+        without @). The trigger message is kept (no --delete). One answer per member per responder every 10 s
+        (RESPONDER_COOLDOWN_SEC): every member here asks once.
+    - messageCreate.ts: autoresponders run for any non-command message.
+    - context.ts reply(): a prefix command's answer is a reply to the command message, no ping.
+    - embeds.ts successEmbed: COLORS.success #5BC98C, icon then the sentence.
+  "Pixel Den" is a made-up server; nova, lumen_77, pixel_moth, bramble, ok_juno, fennec.exe, gift_drop4821, sunny.bee
+  and marlow are made-up users. "#roles" in the response is a channel mention (Discord turns a typed #roles into one).
+  Sound: own sound (music/ is empty), 128.57 BPM (28 frames a beat); every shot is a whole number of beats (sound.py).
+-->
+<style>
+@font-face { font-family: 'Bg'; font-weight: 400; src: url('../../node_modules/@fontsource/bagel-fat-one/files/bagel-fat-one-latin-400-normal.woff2'); }
+@font-face { font-family: 'Kb'; font-weight: 500; src: url('../../node_modules/@fontsource/kumbh-sans/files/kumbh-sans-latin-500-normal.woff2'); }
+@font-face { font-family: 'Kb'; font-weight: 600; src: url('../../node_modules/@fontsource/kumbh-sans/files/kumbh-sans-latin-600-normal.woff2'); }
+@font-face { font-family: 'Kb'; font-weight: 700; src: url('../../node_modules/@fontsource/kumbh-sans/files/kumbh-sans-latin-700-normal.woff2'); }
+@font-face { font-family: 'Kb'; font-weight: 800; src: url('../../node_modules/@fontsource/kumbh-sans/files/kumbh-sans-latin-800-normal.woff2'); }
+@font-face { font-family: 'Bm'; font-weight: 400; src: url('../../node_modules/@fontsource/b612-mono/files/b612-mono-latin-400-normal.woff2'); }
+
+:root { --pine: #1B2422; --shell: #F0E9E4; --ink: #1E2422; --tq: #2BB3A3; --tqDk: #0B6F65; --softLt: #5F6866; --softDk: #A3B2AE; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--shell); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--pine); color: var(--shell); }
+.light { background: var(--shell); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Bg'; font-weight: 400; letter-spacing: -0.01em; }
+.line { display: block; overflow: hidden; padding: 0.04em 0 0.12em; margin-bottom: -0.08em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Kb'; font-weight: 800; font-size: 34px; letter-spacing: 0.2em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; padding-left: 0.2em; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Kb'; font-weight: 700; font-size: 50px; line-height: 1.25; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Kb'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 28px 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 700; }
+.chat .top .name { font-size: 36px; font-weight: 800; color: #F2F3F5; }
+.chat .top .topic { font-size: 28px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 700; }
+.chat .top .tally { margin-left: auto; font-size: 28px; font-weight: 800; padding: 8px 18px; border-radius: 8px; background: #E0575B; color: #fff; white-space: nowrap; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 14px; }
+.msg { padding: 11px 32px; overflow: hidden; position: relative; }
+.msg .row { display: flex; gap: 24px; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 36px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: center; gap: 12px; }
+.who { font-size: 35px; font-weight: 800; color: #F2F3F5; }
+.app { font-size: 20px; font-weight: 800; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; }
+.time { font-size: 25px; color: #949BA4; font-weight: 700; }
+.text { font-size: 38px; line-height: 1.36; color: #DBDEE1; margin-top: 3px; font-weight: 600; }
+.text.cmd { font-family: 'Bm'; font-weight: 400; font-size: 33px; line-height: 1.45; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 5px; font-weight: 700; font-family: 'Kb'; }
+code { font-family: 'Bm'; font-size: 0.86em; background: #1E1F22; border-radius: 5px; padding: 1px 7px; color: #DBDEE1; }
+.embed { margin-top: 8px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 26px 22px; max-width: 840px; font-size: 36px; line-height: 1.4; font-weight: 600; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 40px; height: 40px; flex: none; margin-top: 5px; }
+/* a Discord-style reply line above a message */
+.ref { display: flex; align-items: center; gap: 10px; height: 40px; margin-left: 41px; padding-left: 64px; position: relative; font-size: 27px; color: #B5BAC1; white-space: nowrap; overflow: hidden; }
+.ref::before { content: ''; position: absolute; left: 0; top: 19px; width: 52px; height: 24px; border-left: 4px solid #4E5058; border-top: 4px solid #4E5058; border-top-left-radius: 12px; }
+.ref .mini { width: 32px; height: 32px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: #fff; }
+.ref .rn { font-weight: 800; color: #DBDEE1; }
+.ref .rt { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.divider { display: flex; align-items: center; gap: 18px; padding: 18px 32px 10px; color: #949BA4; font-size: 26px; font-weight: 800; }
+.divider::before, .divider::after { content: ''; flex: 1; height: 2px; background: #3F4147; }
+
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 700;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; }
+.ph { font-size: 33px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 600; }
+.typed { font-family: 'Bm'; font-weight: 400; font-size: 33px; color: #DBDEE1; line-height: 1.45; }
+.caret { display: inline-block; width: 3px; height: 36px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* the service bell */
+.bell { position: absolute; left: 50%; width: 520px; height: 420px; margin-left: -260px; }
+.bell svg { width: 100%; height: 100%; display: block; overflow: visible; }
+
+.qs { position: absolute; left: 90px; right: 90px; display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.q { font-family: 'Kb'; font-weight: 700; font-size: 46px; padding: 18px 34px; border-radius: 14px; background: #2A3532; color: var(--shell); white-space: nowrap; }
+.q em { font-style: normal; color: var(--pine); background: var(--tq); border-radius: 6px; padding: 0 8px; }
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Bm'; font-weight: 400; font-size: 40px; padding: 18px 34px; white-space: nowrap; border-radius: 12px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Bg'; font-weight: 400; font-size: 118px; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (dark) -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:80px;font-size:118px;line-height:1.1">
+    <span class="line"><span>Same question.</span></span>
+    <span class="line"><span style="color:var(--tq)">14 times today.</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:420px;height:1200px"></div>
+  <div class="sub" id="sub0" style="top:1690px;color:var(--softDk)">And staff answer it every time.</div>
+</section>
+
+<!-- 1 turn (light) -->
+<section class="shot light" id="s1">
+  <div class="bell" id="bell1" style="top:560px"></div>
+  <div class="head" style="top:1080px;font-size:150px;line-height:1.08">
+    <span class="line"><span>Answer it</span></span>
+    <span class="line"><span style="color:var(--tqDk)">once.</span></span>
+  </div>
+</section>
+
+<!-- 2 command (dark) -->
+<section class="shot dark" id="s2">
+  <div class="kicker" style="top:240px;color:var(--tq)">Today, 19:41</div>
+  <div class="chat" id="chat2" style="top:320px;height:1120px"></div>
+  <div class="sub" id="sub2" style="top:1520px;color:var(--softDk)">One line. One time.</div>
+</section>
+
+<!-- 3 result (light) -->
+<section class="shot light" id="s3">
+  <div class="kicker" style="top:240px;color:var(--tqDk)">The next day</div>
+  <div class="chat" id="chat3" style="top:320px;height:1120px"></div>
+  <div class="sub" id="sub3" style="top:1520px;color:var(--softLt)">Nobody had to type it.</div>
+</section>
+
+<!-- 4 fact (dark) -->
+<section class="shot dark" id="s4">
+  <div class="head" style="top:470px;font-size:124px;line-height:1.1">
+    <span class="line"><span>Anywhere in</span></span>
+    <span class="line"><span style="color:var(--tq)">the message.</span></span>
+  </div>
+  <div class="qs" id="qs4" style="top:880px">
+    <div class="q">how do i <em>get roles</em>?</div>
+    <div class="q">hey where do i <em>get roles</em></div>
+    <div class="q">can someone tell me how to <em>get roles</em></div>
+  </div>
+  <div class="pills" id="pills4" style="top:1370px"><span class="pill" style="font-size:52px;background:var(--shell);color:var(--ink)">--not_strict</span></div>
+</section>
+
+<!-- 5 end card (light) -->
+<section class="shot light" id="s5">
+  <img class="logo" id="logo5" src="../../assets/kaivor-logo.png" style="top:500px">
+  <div class="kicker" style="top:810px;color:var(--tqDk)">Built into Kaivor</div>
+  <div class="head" style="top:860px;font-size:132px;line-height:1.1">
+    <span class="line"><span>Autoresponders</span></span>
+  </div>
+  <div class="pills" id="pills5" style="top:1090px"><span class="pill" style="background:var(--pine);color:var(--shell)">,autoresponder add trigger, response</span></div>
+  <div class="url" style="top:1220px;color:var(--ink)" id="url5">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BEAT_FRAMES = 28;
+const BEAT = BEAT_FRAMES / FPS;           // 0.4667 s, 128.57 BPM
+const beats = [7, 3, 10, 9, 5, 8];
+const names = ['hook', 'turn', 'command', 'result', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: 60 / BEAT, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT_FRAMES / FPS })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  nova:     { name: 'nova', bg: '#8A5A9E', i: 'N', color: '#E3B25B' },
+  lumen:    { name: 'lumen_77', bg: '#4F7A8C', i: 'L' },
+  moth:     { name: 'pixel_moth', bg: '#9C6B4E', i: 'P' },
+  bramble:  { name: 'bramble', bg: '#5E8253', i: 'B' },
+  juno:     { name: 'ok_juno', bg: '#A2546A', i: 'O' },
+  fennec:   { name: 'fennec.exe', bg: '#6A6AA8', i: 'F' },
+  gift:     { name: 'gift_drop4821', bg: '#7C7550', i: 'G' },
+  sunny:    { name: 'sunny.bee', bg: '#B08A2E', i: 'S' },
+  marlow:   { name: 'marlow', bg: '#4E8378', i: 'M' },
+  rook:     { name: 'rook', bg: '#7B5E8E', i: 'R' },
+  vee:      { name: 'vee', bg: '#A06B3C', i: 'V' },
+  bot:      { name: 'Kaivor', bot: true, app: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+const ok = (html) => `<div class="embed"><div class="st">${CHECK}<div>${html}</div></div></div>`;
+const ch = (name) => `<span class="mention">#${name}</span>`;
+
+// ---- Kaivor's words, copied from aurora-bot ----
+// The command nova types; Discord turns the typed #roles into a channel mention.
+const CMD_TYPED = ',autoresponder add get roles, grab them in #roles --not_strict --reply';
+const CMD_SENT = `,autoresponder add get roles, grab them in ${ch('roles')} --not_strict --reply`;
+// autoresponder.ts add: ctx.success(`Autoresponder added for \`${safe(trigger, 60)}\`.`)
+const R_ADDED = ok('Autoresponder added for <code>get roles</code>.');
+// the response, sent as written (renderAutomatedMessage of plain text)
+const ANSWER = `grab them in ${ch('roles')}`;
+
+function msgHTML(m) {
+  if (m.divider) return `<div class="divider">${m.divider}</div>`;
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  let ref = '';
+  if (m.ref) {
+    const r = U[m.ref.u];
+    ref = `<div class="ref"><span class="mini" style="background:${r.bg}">${r.i}</span><span class="rn"${r.color ? ` style="color:${r.color}"` : ''}>${r.name}</span><span class="rt">${m.ref.html}</span></div>`;
+  }
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${esc(m.text)}</div>`;
+  if (m.extra) content += m.extra;
+  const who = `<span class="who"${u.color ? ` style="color:${u.color}"` : ''}>${u.name}</span>`;
+  return `<div class="msg">${ref}<div class="row">${av}<div class="body"><div class="meta">${who}${app}<span class="time">${m.time}</span></div>${content}</div></div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const tally = opts.tally ? `<span class="tally">asked ${opts.tally}×</span>` : '';
+  const head = `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}${tally}`;
+  const typed = opts.typed || '';
+  const input = `<div class="input"><span class="plus">+</span>${typed
+    ? `<span class="typed">${esc(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+    : `<span class="ph">Message #${opts.channel}</span>`}</div>`;
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${opts.noInput ? '' : input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, opts.slide || 0.2));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+// ---- the service bell (flat, two tones) ----
+// press: 0..1 how far the plunger is pushed; ring: 0..1 progress of the strike lines after a hit
+function bellSVG(press, ring) {
+  const dy = press * 16;
+  const base = '#1E2422', dome = '#0B6F65', hi = '#3A9C90';
+  let lines = '';
+  if (ring > 0 && ring < 1) {
+    const e = out4(ring), o = 1 - ring;
+    const L = (ang, len) => {
+      const a = ang * Math.PI / 180, r0 = 190 + e * 40, r1 = r0 + len;
+      const cx = 260, cy = 250;
+      return `<line x1="${cx + Math.cos(a) * r0}" y1="${cy - Math.sin(a) * r0}" x2="${cx + Math.cos(a) * r1}" y2="${cy - Math.sin(a) * r1}" stroke="#0B6F65" stroke-width="14" stroke-linecap="round" opacity="${o}"/>`;
+    };
+    lines = L(150, 46) + L(125, 40) + L(55, 40) + L(30, 46);
+  }
+  return `<svg viewBox="0 0 520 420">${lines}
+    <rect x="70" y="330" width="380" height="44" rx="10" fill="${base}"/>
+    <rect x="40" y="366" width="440" height="34" rx="10" fill="${base}"/>
+    <path d="M90 330 A170 170 0 0 1 430 330 Z" fill="${dome}"/>
+    <path d="M140 300 A120 120 0 0 1 220 200" fill="none" stroke="${hi}" stroke-width="16" stroke-linecap="round"/>
+    <rect x="248" y="${126 + dy}" width="24" height="${40 - dy}" fill="${base}"/>
+    <rect x="214" y="${104 + dy}" width="92" height="30" rx="15" fill="${base}"/>
+  </svg>`;
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.32));
+    s.style.transform = `translateY(${(1 - e) * 115}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.3));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+function typing(cmd, t, a, d) {
+  return cmd.slice(0, Math.ceil(cmd.length * inout(p(t, a, d))));
+}
+
+// ---- timings (seconds within the shot), on the beat grid; sound.py uses the same beats ----
+const H_Q = [B(0.5), B(1.25), B(2), B(2.75), B(3.5), B(4.25)], H_NOVA = B(5), H_SUB = B(5.5);
+const T_BELL = B(0.25), T_HIT = B(1);
+const C_TYPE = B(0.5), C_SEND = B(5), C_REPLY = B(5.75), C_SUB = B(7);
+const R_Q1 = B(0.5), R_A1 = B(1.25), R_Q2 = B(3), R_A2 = B(3.75), R_SUB = B(5.5);
+const F_Q = [B(1.5), B(2), B(2.5)], F_PILL = B(3.25);
+window.T = { H_Q, H_NOVA, T_HIT, C_TYPE, C_SEND, C_REPLY, R_Q1, R_A1, R_Q2, R_A2, F_Q, F_PILL };
+
+const S = [...document.querySelectorAll('.shot')];
+
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, '.head', t, 0.02, 0.14);
+    const msgs = [
+      { u: 'rook', text: 'anyone up for ranked later?', at: -1, time: 'Today at 12:50' },
+      { u: 'vee', text: 'after 8 maybe', at: -1, time: 'Today at 12:52' },
+      { u: 'lumen', text: 'how do i get roles', at: -1, time: 'Today at 13:11' },
+      { u: 'nova', html: `${ch('roles')} :)`, at: -1, time: 'Today at 13:12' },
+      { u: 'moth', text: 'hey how do i get the colour roles?', at: H_Q[0], time: 'Today at 15:47' },
+      { u: 'bramble', text: 'how do i get roles??', at: H_Q[1], time: 'Today at 16:30' },
+      { u: 'juno', text: 'where do i get roles', at: H_Q[2], time: 'Today at 17:05' },
+      { u: 'fennec', text: 'how do u get roles here', at: H_Q[3], time: 'Today at 18:21' },
+      { u: 'gift', text: 'how do i get roles?', at: H_Q[4], time: 'Today at 19:38' },
+      { u: 'nova', html: `${ch('roles')}. it's pinned. again.`, at: H_NOVA, time: 'Today at 19:40' },
+    ];
+    const tally = 9 + H_Q.filter((a) => t >= a).length;
+    renderChat(document.getElementById('chat0'), t, msgs, { channel: 'general', topic: 'Pixel Den', tally: Math.min(tally, 14), slide: 0.16 });
+    rise('sub0', t, H_SUB);
+  } else if (shot === 1) {
+    const e = out4(p(t, 0, 0.3));
+    const el = document.getElementById('bell1');
+    const press = t < T_HIT - 0.12 ? 0 : t < T_HIT ? (t - (T_HIT - 0.12)) / 0.12 : Math.max(0, 1 - (t - T_HIT) / 0.14);
+    el.innerHTML = bellSVG(press, (t - T_HIT) / 0.5);
+    el.style.opacity = String(e); el.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, B(0.25), B(0.75));
+  } else if (shot === 2) {
+    const msgs = [
+      { u: 'moth', text: 'hey how do i get the colour roles?', at: -1, time: 'Today at 15:47' },
+      { u: 'bramble', text: 'how do i get roles??', at: -1, time: 'Today at 16:30' },
+      { u: 'juno', text: 'where do i get roles', at: -1, time: 'Today at 17:05' },
+      { u: 'fennec', text: 'how do u get roles here', at: -1, time: 'Today at 18:21' },
+      { u: 'gift', text: 'how do i get roles?', at: -1, time: 'Today at 19:38' },
+      { u: 'nova', html: `${ch('roles')}. it's pinned. again.`, at: -1, time: 'Today at 19:40' },
+      { u: 'nova', cmd: true, html: CMD_SENT, at: C_SEND, time: 'Today at 19:41' },
+      { u: 'bot', ref: { u: 'nova', html: ',autoresponder add get roles, grab them in #roles --not_strict --reply' }, extra: R_ADDED, at: C_REPLY, time: 'Today at 19:41' },
+    ];
+    let typed = '', caret = false;
+    if (t >= C_TYPE && t < C_SEND) { typed = typing(CMD_TYPED, t, C_TYPE, C_SEND - C_TYPE - 0.12); caret = true; }
+    renderChat(document.getElementById('chat2'), t, msgs, { channel: 'general', topic: 'Pixel Den', typed, caret });
+    rise('sub2', t, C_SUB);
+  } else if (shot === 3) {
+    const msgs = [
+      { u: 'nova', cmd: true, html: CMD_SENT, at: -1, time: 'Yesterday at 19:41' },
+      { u: 'bot', ref: { u: 'nova', html: ',autoresponder add get roles, grab them in #roles --not_strict --reply' }, extra: R_ADDED, at: -1, time: 'Yesterday at 19:41' },
+      { divider: '27 November 2026', at: -1 },
+      { u: 'sunny', text: 'how do i get roles?', at: R_Q1, time: 'Today at 10:02' },
+      { u: 'bot', ref: { u: 'sunny', html: 'how do i get roles?' }, html: ANSWER, at: R_A1, time: 'Today at 10:02' },
+      { u: 'marlow', text: 'hey where do i get roles', at: R_Q2, time: 'Today at 11:26' },
+      { u: 'bot', ref: { u: 'marlow', html: 'hey where do i get roles' }, html: ANSWER, at: R_A2, time: 'Today at 11:26' },
+    ];
+    renderChat(document.getElementById('chat3'), t, msgs, { channel: 'general', topic: 'Pixel Den' });
+    rise('sub3', t, R_SUB);
+  } else if (shot === 4) {
+    lines(sec, '.head', t, 0.0, B(0.75));
+    document.querySelectorAll('#qs4 .q').forEach((q, i) => {
+      const e = out4(p(t, F_Q[i], 0.28));
+      q.style.opacity = String(e); q.style.transform = `translateY(${(1 - e) * 26}px)`;
+    });
+    rise('pills4', t, F_PILL);
+  } else if (shot === 5) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo5');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills5', t, B(1));
+    rise('url5', t, B(2));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>
