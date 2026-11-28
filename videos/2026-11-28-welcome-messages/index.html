@@ -1,0 +1,363 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Kaivor promo: welcome messages (aurora-bot src/commands/configuration/systemMessages.ts,
+  src/services/systemMessages/index.ts, src/events/listeners/guildMemberAdd.ts, src/services/scripting/variables.ts,
+  src/services/scripting/embedScript.ts, src/framework/embeds.ts, src/framework/context.ts). Not a new commit: nothing
+  showable has shipped since d62b1be (public access, developer-only), so this is an older member-facing feature with
+  no video yet.
+  Look: "front door": smoke blue #242C36 and porcelain #EEF0EC alternating by shot, one accent (marigold #F2A541 on
+  dark, deep marigold #9A5B06 on light). A flat front door that swings open over a coir WELCOME mat on the turn,
+  Discord-style join lines with a green arrow piling up unanswered in the hook, a "variable → what Kaivor fills in"
+  pair of rows on the fact shot. Yeseva One for headlines, Readex Pro for the chat UI and copy, Noto Sans Mono only
+  for commands and variables.
+  Facts checked in aurora-bot:
+    - systemMessages.ts `welcome add`: usage `<#channel> <script> [--self_destruct <6-60>]`, userPermissions
+        manage_guild; the script is everything typed after the channel (rawRest). Its own example is
+        `welcome add #general Welcome {user.mention} to {guild.name}!`.
+        Reply: ctx.success(`${Noun} set for ${channel}${selfDestruct ? ... : ''}.` + unfillableVariablesNote(...))
+        -> "Welcome message set for #general." (no --self_destruct; every variable used is in the member scope, so
+        no note).
+    - variables.ts: {user.mention} -> <@id> (a mention, shown as @juniper), {guild.name} -> the server name,
+        {guild.member_count} -> String(guild.memberCount) (no thousands separator, so 312 / 313).
+        SCRIPT_SCOPES.member = user, guild, channel; VARIABLE_TOKEN only matches {name}, so the "#" before
+        {guild.member_count} stays literal text. embedScript.ts: a script with no {embed} is sent as plain content.
+    - guildMemberAdd.ts: dispatchSystemMessage(member, 'WELCOME') runs on every join (not for voice guests,
+        not when antiraid stops the join). memberCount counts the new member, so the next joiner is 313.
+    - context.ts reply(): a prefix command's answer is a reply to the command message. embeds.ts successEmbed:
+        COLORS.success #5BC98C, icon then the sentence.
+  "Pixel Den" is a made-up server; mira, rook, vee, wren, pebble, okapi_22, juniper and otto are made-up users.
+  The join lines are Discord's own system messages, drawn generically.
+  Sound: own sound (music/ is empty), 109.09 BPM (33 frames a beat); every shot is a whole number of beats (sound.py).
+-->
+<style>
+@font-face { font-family: 'Ye'; font-weight: 400; src: url('../../node_modules/@fontsource/yeseva-one/files/yeseva-one-latin-400-normal.woff2'); }
+@font-face { font-family: 'Rx'; font-weight: 400; src: url('../../node_modules/@fontsource/readex-pro/files/readex-pro-latin-400-normal.woff2'); }
+@font-face { font-family: 'Rx'; font-weight: 500; src: url('../../node_modules/@fontsource/readex-pro/files/readex-pro-latin-500-normal.woff2'); }
+@font-face { font-family: 'Rx'; font-weight: 600; src: url('../../node_modules/@fontsource/readex-pro/files/readex-pro-latin-600-normal.woff2'); }
+@font-face { font-family: 'Rx'; font-weight: 700; src: url('../../node_modules/@fontsource/readex-pro/files/readex-pro-latin-700-normal.woff2'); }
+@font-face { font-family: 'Nm'; font-weight: 400; src: url('../../node_modules/@fontsource/noto-sans-mono/files/noto-sans-mono-latin-400-normal.woff2'); }
+
+:root { --smoke: #242C36; --porc: #EEF0EC; --ink: #20262E; --mg: #F2A541; --mgDk: #9A5B06; --softLt: #5E6670; --softDk: #A7B0BC; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--porc); }
+.shot { position: absolute; inset: 0; display: none; }
+.dark { background: var(--smoke); color: var(--porc); }
+.light { background: var(--porc); color: var(--ink); }
+
+.head { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ye'; font-weight: 400; letter-spacing: -0.005em; }
+.line { display: block; overflow: hidden; padding: 0.06em 0 0.14em; margin-bottom: -0.1em; }
+.line > span { display: inline-block; will-change: transform; }
+.kicker { font-family: 'Rx'; font-weight: 700; font-size: 34px; letter-spacing: 0.18em; text-transform: uppercase; position: absolute; left: 0; right: 0; text-align: center; padding-left: 0.18em; }
+.sub { position: absolute; left: 90px; right: 90px; text-align: center; font-family: 'Rx'; font-weight: 600; font-size: 50px; line-height: 1.25; }
+
+/* generic Discord-style UI (no Discord logo or wordmark) */
+.chat { position: absolute; left: 60px; width: 960px; background: #313338; border-radius: 8px; overflow: hidden;
+        font-family: 'Rx'; color: #DBDEE1; display: flex; flex-direction: column; }
+.chat .top { height: 92px; flex: none; display: flex; align-items: center; gap: 16px; padding: 0 28px 0 32px; border-bottom: 2px solid #26282C; }
+.chat .top .hash { font-size: 46px; color: #80848E; font-weight: 600; }
+.chat .top .name { font-size: 36px; font-weight: 700; color: #F2F3F5; }
+.chat .top .topic { font-size: 28px; color: #949BA4; border-left: 2px solid #3F4147; padding-left: 18px; margin-left: 4px; white-space: nowrap; font-weight: 500; }
+.chat .list { flex: 1; overflow: hidden; position: relative; }
+.chat .stack { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 0 14px; }
+.msg { padding: 11px 32px; overflow: hidden; position: relative; }
+.msg .row { display: flex; gap: 24px; }
+.av { width: 82px; height: 82px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 36px; color: #fff; overflow: hidden; }
+.av img { width: 100%; height: 100%; display: block; }
+.body { min-width: 0; flex: 1; }
+.meta { display: flex; align-items: center; gap: 12px; }
+.who { font-size: 35px; font-weight: 700; color: #F2F3F5; }
+.app { font-size: 20px; font-weight: 700; color: #fff; background: #5865F2; border-radius: 5px; padding: 3px 9px; }
+.time { font-size: 25px; color: #949BA4; font-weight: 500; }
+.text { font-size: 38px; line-height: 1.36; color: #DBDEE1; margin-top: 3px; font-weight: 400; }
+.text.cmd { font-family: 'Nm'; font-weight: 400; font-size: 32px; line-height: 1.45; word-break: break-word; }
+.mention { background: rgba(88, 101, 242, 0.3); color: #C9CDFB; border-radius: 4px; padding: 0 5px; font-weight: 600; font-family: 'Rx'; }
+.embed { margin-top: 8px; background: #2B2D31; border-radius: 5px; border-left: 8px solid #5BC98C; padding: 20px 26px 22px; max-width: 840px; font-size: 36px; line-height: 1.4; font-weight: 400; }
+.embed .st { display: flex; gap: 14px; align-items: flex-start; }
+.embed .st svg { width: 40px; height: 40px; flex: none; margin-top: 5px; }
+/* a Discord-style join line */
+.join { display: flex; align-items: center; gap: 24px; padding: 14px 32px; font-size: 34px; color: #949BA4; font-weight: 400; }
+.join .arrow { width: 82px; flex: none; display: flex; justify-content: center; }
+.join .arrow svg { width: 40px; height: 40px; }
+.join b { color: #F2F3F5; font-weight: 600; }
+.join .time { margin-left: 4px; }
+/* a Discord-style reply line above a message */
+.ref { display: flex; align-items: center; gap: 10px; height: 40px; margin-left: 41px; padding-left: 64px; position: relative; font-size: 27px; color: #B5BAC1; white-space: nowrap; overflow: hidden; }
+.ref::before { content: ''; position: absolute; left: 0; top: 19px; width: 52px; height: 24px; border-left: 4px solid #4E5058; border-top: 4px solid #4E5058; border-top-left-radius: 12px; }
+.ref .mini { width: 32px; height: 32px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; color: #fff; }
+.ref .rn { font-weight: 700; color: #DBDEE1; }
+.ref .rt { overflow: hidden; text-overflow: ellipsis; font-weight: 400; }
+
+.input { flex: none; margin: 0 22px 22px; min-height: 92px; background: #383A40; border-radius: 10px; display: flex; align-items: center; gap: 20px; padding: 16px 24px; }
+.plus { width: 46px; height: 46px; border-radius: 50%; background: #B5BAC1; color: #383A40; font-size: 40px; font-weight: 600;
+        display: flex; align-items: center; justify-content: center; line-height: 1; flex: none; align-self: flex-start; margin-top: 6px; }
+.ph { font-size: 33px; color: #6D6F78; white-space: nowrap; overflow: hidden; font-weight: 400; }
+.typed { font-family: 'Nm'; font-weight: 400; font-size: 32px; color: #DBDEE1; line-height: 1.45; word-break: break-word; min-width: 0; }
+.caret { display: inline-block; width: 3px; height: 36px; background: #DBDEE1; vertical-align: middle; margin-left: 2px; }
+
+/* the front door and the mat */
+.door { position: absolute; left: 50%; width: 560px; height: 760px; margin-left: -280px; }
+.door svg { width: 100%; height: 100%; display: block; overflow: visible; }
+
+/* variable -> what Kaivor fills in */
+.vars { position: absolute; left: 70px; right: 70px; display: flex; flex-direction: column; align-items: center; gap: 34px; }
+.vrow { display: flex; align-items: center; justify-content: center; gap: 26px; white-space: nowrap; }
+.var { font-family: 'Nm'; font-size: 46px; padding: 16px 26px; border-radius: 10px; background: #323B47; color: var(--porc); }
+.to { font-family: 'Rx'; font-weight: 600; font-size: 56px; color: var(--mg); }
+.fill { font-family: 'Rx'; font-weight: 600; font-size: 54px; padding: 12px 22px; border-radius: 10px; background: var(--porc); color: var(--ink); }
+.fill.m { color: #3B45C4; }
+.logo { position: absolute; left: 50%; width: 240px; height: 240px; margin-left: -120px; }
+.pills { position: absolute; left: 0; right: 0; display: flex; justify-content: center; }
+.pill { font-family: 'Nm'; font-weight: 400; font-size: 40px; padding: 18px 34px; white-space: nowrap; border-radius: 12px; }
+.url { position: absolute; left: 0; right: 0; text-align: center; font-family: 'Ye'; font-weight: 400; font-size: 118px; }
+</style>
+</head>
+<body>
+
+<!-- 0 hook (dark) -->
+<section class="shot dark" id="s0">
+  <div class="head" style="top:80px;font-size:120px;line-height:1.08">
+    <span class="line"><span>3 joined today.</span></span>
+    <span class="line"><span style="color:var(--mg)">Nobody said hi.</span></span>
+  </div>
+  <div class="chat" id="chat0" style="top:430px;height:1190px"></div>
+  <div class="sub" id="sub0" style="top:1690px;color:var(--softDk)">Two of them left that night.</div>
+</section>
+
+<!-- 1 turn (light) -->
+<section class="shot light" id="s1">
+  <div class="door" id="door1" style="top:250px"></div>
+  <div class="head" style="top:1110px;font-size:144px;line-height:1.06">
+    <span class="line"><span>Let Kaivor</span></span>
+    <span class="line"><span style="color:var(--mgDk)">get the door.</span></span>
+  </div>
+</section>
+
+<!-- 2 command (dark) -->
+<section class="shot dark" id="s2">
+  <div class="kicker" style="top:240px;color:var(--mg)">Pixel Den, 20:14</div>
+  <div class="chat" id="chat2" style="top:320px;height:1150px"></div>
+  <div class="sub" id="sub2" style="top:1550px;color:var(--softDk)">The {braces} fill themselves in.</div>
+</section>
+
+<!-- 3 result (light) -->
+<section class="shot light" id="s3">
+  <div class="kicker" style="top:240px;color:var(--mgDk)">Later that night</div>
+  <div class="chat" id="chat3" style="top:320px;height:1150px"></div>
+  <div class="sub" id="sub3" style="top:1550px;color:var(--softLt)">Nobody waits at the door.</div>
+</section>
+
+<!-- 4 fact (dark) -->
+<section class="shot dark" id="s4">
+  <div class="head" style="top:640px;font-size:138px;line-height:1.08">
+    <span class="line"><span>Their name.</span></span>
+    <span class="line"><span style="color:var(--mg)">Your words.</span></span>
+  </div>
+  <div class="vars" id="vars4" style="top:1110px">
+    <div class="vrow"><span class="var">{user.mention}</span><span class="to">→</span><span class="fill m">@juniper</span></div>
+    <div class="vrow"><span class="var">{guild.member_count}</span><span class="to">→</span><span class="fill">312</span></div>
+  </div>
+</section>
+
+<!-- 5 end card (light) -->
+<section class="shot light" id="s5">
+  <img class="logo" id="logo5" src="../../assets/kaivor-logo.png" style="top:500px">
+  <div class="kicker" style="top:810px;color:var(--mgDk)">Built into Kaivor</div>
+  <div class="head" style="top:862px;font-size:98px;line-height:1.1">
+    <span class="line"><span>Welcome messages</span></span>
+  </div>
+  <div class="pills" id="pills5" style="top:1090px"><span class="pill" style="background:var(--smoke);color:var(--porc)">,welcome add #channel message</span></div>
+  <div class="url" style="top:1220px;color:var(--ink)" id="url5">kaivor.space</div>
+</section>
+
+<script>
+const FPS = 60;
+const BEAT_FRAMES = 33;
+const BEAT = BEAT_FRAMES / FPS;           // 0.55 s, 109.09 BPM
+const beats = [7, 4, 9, 8, 5, 6];
+const names = ['hook', 'turn', 'command', 'result', 'fact', 'end'];
+window.VIDEO = { fps: FPS, bpm: 60 / BEAT, shots: beats.map((b, i) => ({ name: names[i], seconds: b * BEAT_FRAMES / FPS })) };
+
+const out4 = (t) => 1 - Math.pow(1 - Math.min(1, Math.max(0, t)), 4);
+const inout = (t) => { t = Math.min(1, Math.max(0, t)); return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2; };
+const p = (t, a, d) => Math.min(1, Math.max(0, (t - a) / d));
+const B = (n) => n * BEAT;
+
+const U = {
+  mira:    { name: 'mira', bg: '#8A5A9E', i: 'M', color: '#E3B25B' },
+  rook:    { name: 'rook', bg: '#7B5E8E', i: 'R' },
+  vee:     { name: 'vee', bg: '#A06B3C', i: 'V' },
+  juniper: { name: 'juniper', bg: '#4F7A8C', i: 'J' },
+  bot:     { name: 'Kaivor', bot: true, app: true },
+};
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#5BC98C"/><g fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m7.4 12.4 3.1 3.1 6.1-6.6"/></g></svg>';
+const ARROW = '<svg viewBox="0 0 24 24"><path d="M3 12h14m-5-6 6 6-6 6" fill="none" stroke="#23A55A" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ok = (html) => `<div class="embed"><div class="st">${CHECK}<div>${html}</div></div></div>`;
+const ch = (name) => `<span class="mention">#${name}</span>`;
+const at = (name) => `<span class="mention">@${name}</span>`;
+
+// ---- Kaivor's words, copied from aurora-bot ----
+// What mira types; Discord turns the typed #general into a channel mention. The script is sent as plain content.
+const CMD_TYPED = ",welcome add #general Welcome {user.mention} to {guild.name}! You're member #{guild.member_count}.";
+const CMD_SENT = `,welcome add ${ch('general')} Welcome {user.mention} to {guild.name}! You're member #{guild.member_count}.`;
+// systemMessages.ts add: ctx.success(`Welcome message set for ${channel.toString()}.`)
+const R_SET = ok(`Welcome message set for ${ch('general')}.`);
+// the script, rendered for each new member (variables.ts)
+const WELCOME = (name, n) => `Welcome ${at(name)} to Pixel Den! You're member #${n}.`;
+
+function msgHTML(m) {
+  if (m.join) return `<div class="join"><span class="arrow">${ARROW}</span><span><b>${m.join}</b> joined the server.</span><span class="time">${m.time}</span></div>`;
+  const u = U[m.u];
+  const av = u.bot ? `<div class="av"><img src="../../assets/icon-512.png"></div>` : `<div class="av" style="background:${u.bg}">${u.i}</div>`;
+  const app = u.app ? '<span class="app">APP</span>' : '';
+  let ref = '';
+  if (m.ref) {
+    const r = U[m.ref.u];
+    ref = `<div class="ref"><span class="mini" style="background:${r.bg}">${r.i}</span><span class="rn"${r.color ? ` style="color:${r.color}"` : ''}>${r.name}</span><span class="rt">${m.ref.html}</span></div>`;
+  }
+  let content = '';
+  if (m.html) content += `<div class="text${m.cmd ? ' cmd' : ''}">${m.html}</div>`;
+  else if (m.text) content += `<div class="text">${esc(m.text)}</div>`;
+  if (m.extra) content += m.extra;
+  const who = `<span class="who"${u.color ? ` style="color:${u.color}"` : ''}>${u.name}</span>`;
+  return `<div class="msg">${ref}<div class="row">${av}<div class="body"><div class="meta">${who}${app}<span class="time">${m.time}</span></div>${content}</div></div></div>`;
+}
+
+function renderChat(el, t, msgs, opts = {}) {
+  const shown = msgs.filter((m) => t >= m.at);
+  const newest = shown[shown.length - 1];
+  const head = `<span class="hash">#</span><span class="name">${opts.channel}</span>${opts.topic ? `<span class="topic">${opts.topic}</span>` : ''}`;
+  const typed = opts.typed || '';
+  const input = `<div class="input"><span class="plus">+</span>${typed
+    ? `<span class="typed">${esc(typed)}${opts.caret ? '<span class="caret"></span>' : ''}</span>`
+    : `<span class="ph">Message #${opts.channel}</span>`}</div>`;
+  el.innerHTML = `<div class="top">${head}</div><div class="list"><div class="stack">${shown.map(msgHTML).join('')}</div></div>${input}`;
+  if (newest && newest.at >= 0) {
+    const stack = el.querySelector('.stack');
+    const last = stack.lastElementChild;
+    const e = out4(p(t, newest.at, opts.slide || 0.2));
+    stack.style.transform = `translateY(${(1 - e) * last.offsetHeight}px)`;
+    last.style.opacity = String(e);
+  }
+}
+
+// ---- the front door over a WELCOME mat (flat, two tones plus the accent) ----
+// open: 0..1 how far the door has swung in
+function doorSVG(open) {
+  const frame = '#20262E', door = '#9A5B06', inside = '#2E3742', mat = '#C9A46A', matDk = '#8E6E3E';
+  const W = 300, x0 = 130, y0 = 60, H = 520;
+  const w = W * (1 - 0.78 * open);           // the panel narrows as it swings in on the left hinge
+  const knobX = x0 + w - 34;
+  return `<svg viewBox="0 0 560 760">
+    <rect x="${x0 - 26}" y="${y0 - 26}" width="${W + 52}" height="${H + 26}" fill="${frame}"/>
+    <rect x="${x0}" y="${y0}" width="${W}" height="${H}" fill="${inside}"/>
+    <rect x="${x0 + 40}" y="${y0 + H - 70}" width="${W - 80}" height="12" fill="#3A4552"/>
+    <polygon points="${x0},${y0} ${x0 + w},${y0 + 18 * open} ${x0 + w},${y0 + H - 18 * open} ${x0},${y0 + H}" fill="${door}"/>
+    <rect x="${x0 + w * 0.16}" y="${y0 + 60}" width="${w * 0.68}" height="150" fill="none" stroke="#7C4904" stroke-width="10" opacity="${1 - open * 0.7}"/>
+    <rect x="${x0 + w * 0.16}" y="${y0 + 270}" width="${w * 0.68}" height="190" fill="none" stroke="#7C4904" stroke-width="10" opacity="${1 - open * 0.7}"/>
+    <circle cx="${knobX}" cy="${y0 + 250}" r="${12 * (1 - 0.6 * open)}" fill="#F2A541"/>
+    <rect x="60" y="${y0 + H + 10}" width="440" height="22" fill="${frame}"/>
+    <rect x="90" y="${y0 + H + 60}" width="380" height="120" rx="10" fill="${mat}"/>
+    <rect x="104" y="${y0 + H + 74}" width="352" height="92" rx="6" fill="none" stroke="${matDk}" stroke-width="6"/>
+    <text x="280" y="${y0 + H + 138}" text-anchor="middle" font-family="Ye" font-size="54" letter-spacing="6" fill="#20262E">WELCOME</text>
+  </svg>`;
+}
+
+function lines(sec, sel, t, start, gap) {
+  sec.querySelectorAll(sel + ' .line > span').forEach((s, i) => {
+    const e = out4(p(t, start + i * gap, 0.32));
+    s.style.transform = `translateY(${(1 - e) * 115}%)`;
+  });
+}
+function rise(id, t, a) {
+  const el = document.getElementById(id), q = out4(p(t, a, 0.3));
+  el.style.opacity = String(q); el.style.transform = `translateY(${(1 - q) * 24}px)`;
+}
+function typing(cmd, t, a, d) {
+  return cmd.slice(0, Math.ceil(cmd.length * inout(p(t, a, d))));
+}
+
+// ---- timings (seconds within the shot), on the beat grid; sound.py uses the same beats ----
+const H_J = [B(0.5), B(2), B(3.5)], H_M = [B(1.25), B(2.75), B(4.25)], H_SUB = B(5.25);
+const T_RING = B(0.25), T_OPEN = B(1);
+const C_TYPE = B(0.25), C_SEND = B(5), C_REPLY = B(5.75), C_SUB = B(6.75);
+const R_J1 = B(0.5), R_W1 = B(1.25), R_HI = B(2.5), R_J2 = B(4), R_W2 = B(4.75), R_SUB = B(5.75);
+const F_V = [B(1.75), B(2.5)];
+window.T = { H_J, H_M, T_RING, T_OPEN, C_TYPE, C_SEND, C_REPLY, R_J1, R_W1, R_HI, R_J2, R_W2, F_V };
+
+const S = [...document.querySelectorAll('.shot')];
+const HOOK_MSGS = [
+  { u: 'rook', text: 'queue is dead today', at: -1, time: 'Today at 17:12' },
+  { u: 'mira', text: 'it always is before 6', at: -1, time: 'Today at 17:14' },
+  { u: 'rook', text: 'fair', at: -1, time: 'Today at 17:15' },
+  { u: 'vee', text: 'that last round was so close', at: -1, time: 'Today at 17:31' },
+  { u: 'mira', text: 'clip it or it never happened', at: -1, time: 'Today at 17:33' },
+  { u: 'vee', text: 'uploading', at: -1, time: 'Today at 17:34' },
+  { u: 'rook', text: 'anyone up for ranked later?', at: -1, time: 'Today at 17:52' },
+  { u: 'vee', text: 'after 8 maybe', at: -1, time: 'Today at 17:55' },
+  { join: 'wren', at: H_J[0], time: 'Today at 18:03' },
+  { u: 'rook', text: '8 works', at: H_M[0], time: 'Today at 18:04' },
+  { join: 'pebble', at: H_J[1], time: 'Today at 18:40' },
+  { u: 'vee', text: 'who is bringing snacks to the stream lol', at: H_M[1], time: 'Today at 18:41' },
+  { join: 'okapi_22', at: H_J[2], time: 'Today at 19:26' },
+  { u: 'rook', text: 'gg all, night', at: H_M[2], time: 'Today at 19:58' },
+];
+
+window.render = function (shot, f) {
+  const t = f / FPS;
+  S.forEach((s, i) => (s.style.display = i === shot ? 'block' : 'none'));
+  const sec = S[shot];
+  if (shot === 0) {
+    lines(sec, '.head', t, 0.02, 0.14);
+    renderChat(document.getElementById('chat0'), t, HOOK_MSGS, { channel: 'general', topic: 'Pixel Den', slide: 0.16 });
+    rise('sub0', t, H_SUB);
+  } else if (shot === 1) {
+    const e = out4(p(t, 0, 0.3));
+    const el = document.getElementById('door1');
+    el.innerHTML = doorSVG(out4(p(t, T_OPEN, 0.45)));
+    el.style.opacity = String(e); el.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, B(0.5), B(0.75));
+  } else if (shot === 2) {
+    const msgs = HOOK_MSGS.map((m) => ({ ...m, at: -1 })).concat([
+      { u: 'mira', cmd: true, html: CMD_SENT, at: C_SEND, time: 'Today at 20:14' },
+      { u: 'bot', ref: { u: 'mira', html: esc(CMD_TYPED) }, extra: R_SET, at: C_REPLY, time: 'Today at 20:14' },
+    ]);
+    let typed = '', caret = false;
+    if (t >= C_TYPE && t < C_SEND) { typed = typing(CMD_TYPED, t, C_TYPE, C_SEND - C_TYPE - 0.12); caret = true; }
+    renderChat(document.getElementById('chat2'), t, msgs, { channel: 'general', topic: 'Pixel Den', typed, caret });
+    rise('sub2', t, C_SUB);
+  } else if (shot === 3) {
+    const msgs = HOOK_MSGS.slice(-3).map((m) => ({ ...m, at: -1 })).concat([
+      { u: 'mira', cmd: true, html: CMD_SENT, at: -1, time: 'Today at 20:14' },
+      { u: 'bot', ref: { u: 'mira', html: esc(CMD_TYPED) }, extra: R_SET, at: -1, time: 'Today at 20:14' },
+      { join: 'juniper', at: R_J1, time: 'Today at 22:37' },
+      { u: 'bot', html: WELCOME('juniper', 312), at: R_W1, time: 'Today at 22:37' },
+      { u: 'juniper', text: 'oh hi! thanks', at: R_HI, time: 'Today at 22:38' },
+      { join: 'otto', at: R_J2, time: 'Today at 23:05' },
+      { u: 'bot', html: WELCOME('otto', 313), at: R_W2, time: 'Today at 23:05' },
+    ]);
+    renderChat(document.getElementById('chat3'), t, msgs, { channel: 'general', topic: 'Pixel Den' });
+    rise('sub3', t, R_SUB);
+  } else if (shot === 4) {
+    lines(sec, '.head', t, 0.0, B(0.75));
+    document.querySelectorAll('#vars4 .vrow').forEach((r, i) => {
+      const e = out4(p(t, F_V[i], 0.28));
+      r.style.opacity = String(e); r.style.transform = `translateY(${(1 - e) * 26}px)`;
+    });
+  } else if (shot === 5) {
+    const e = out4(p(t, 0, 0.4));
+    const logo = document.getElementById('logo5');
+    logo.style.opacity = String(e); logo.style.transform = `translateY(${(1 - e) * 40}px)`;
+    lines(sec, '.head', t, 0.1, 0.1);
+    rise('pills5', t, B(1));
+    rise('url5', t, B(2));
+  }
+};
+render(0, 0);
+</script>
+</body>
+</html>

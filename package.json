@@ -52,6 +52,7 @@
     "@fontsource/manrope": "^5.3.0",
     "@fontsource/martian-mono": "^5.3.0",
     "@fontsource/mulish": "^5.3.0",
+    "@fontsource/noto-sans-mono": "^5.3.0",
     "@fontsource/nunito-sans": "^5.3.0",
     "@fontsource/onest": "^5.3.1",
     "@fontsource/oswald": "^5.3.0",
@@ -61,6 +62,7 @@
     "@fontsource/plus-jakarta-sans": "^5.3.0",
     "@fontsource/pt-mono": "^5.3.0",
     "@fontsource/public-sans": "^5.3.0",
+    "@fontsource/readex-pro": "^5.3.0",
     "@fontsource/red-hat-mono": "^5.3.0",
     "@fontsource/red-hat-text": "^5.3.0",
     "@fontsource/reddit-mono": "^5.3.0",
@@ -83,6 +85,7 @@
     "@fontsource/urbanist": "^5.3.0",
     "@fontsource/victor-mono": "^5.3.0",
     "@fontsource/work-sans": "^5.3.0",
+    "@fontsource/yeseva-one": "^5.3.0",
     "@fontsource/young-serif": "^5.3.0"
   }
 }
